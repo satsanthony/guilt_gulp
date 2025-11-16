@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#1a1a1a">
+    <title>Healthy Beer Finder</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/dark-theme-variables.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="header-logo">
+                <img src="{{ url_for('static', filename='images/logo.png') }}" alt="Guilt Gulp Logo" class="logo-image">
+                <h1>Healthy Beer Finder</h1>
+            </div>
+            <p class="subtitle">Discover low-calorie, low-carb, and healthy beer options</p>
+        </header>
+
+        <nav>
+            <a href="/" class="nav-link active">Search</a>
+            <a href="/selected" class="nav-link">My Selected Beers</a>
+        </nav>
+
+        <div class="search-section">
+            <div class="search-box">
+                <input 
+                    type="text" 
+                    id="searchInput" 
+                    placeholder="Search for healthy beers (e.g., 'low calorie IPAs', 'gluten free beers', 'light beers')..."
+                    autocomplete="off"
+                >
+                <button id="searchBtn" class="search-btn">Search</button>
+            </div>
+        </div>
+
+        <div id="loadingSpinner" class="loading-spinner" style="display: none;">
+            <div class="spinner"></div>
+            <p>Finding your perfect healthy beer...</p>
+        </div>
+        <div id="errorMessage" class="error-message" style="display: none;"></div>
+
+        <div id="selectionInstruction" class="selection-instruction" style="display: none;">
+            ✨ Click the checkbox in the top-right corner of any beer card to add it to your selection
+        </div>
+
+        <div id="beerResults" class="beer-results"></div>
+
+        </footer>        <footer>
+            <div class="visitor-counter">
+                <span class="counter-label">Visitors:</span>
+                <span id="visitorCount" class="counter-value">Loading...</span>
+            </div>
+            <p>© 2025 Dimension Unlimited. All rights reserved. Drink responsibly.</p>
+        </footer>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+</html>

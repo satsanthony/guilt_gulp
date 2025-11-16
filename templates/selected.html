@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#1a1a1a">
+    <title>My Selected Beers - Beer Finder</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/dark-theme-variables.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="header-logo">
+                <img src="{{ url_for('static', filename='images/logo.png') }}" alt="Guilt Gulp Logo" class="logo-image">
+                <h1>My Selected Beers</h1>
+            </div>
+            <p class="subtitle">Your curated collection of healthy beers</p>
+        </header>
+
+        <nav>
+            <a href="/" class="nav-link">Search</a>
+            <a href="/selected" class="nav-link active">My Selected Beers</a>
+            <button id="logoutBtn" class="nav-link logout-btn">Logout</button>
+        </nav>
+
+        <div id="loadingSpinner" class="loading-spinner" style="display: none;">
+            <div class="spinner"></div>
+            <p>Loading your beers...</p>
+        </div>
+
+        <div id="emptyState" class="empty-state" style="display: none;">
+            <h2>No beers selected yet</h2>
+            <p>Start by <a href="/">searching for beers</a> and adding them to your list!</p>
+        </div>
+
+        <div id="beerTableContainer" class="table-container"></div>
+
+        <footer>
+            <p>© 2025 Dimension Unlimited. All rights reserved. Drink responsibly.</p>
+        </footer>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/selected.js') }}"></script>
+</body>
+</html>

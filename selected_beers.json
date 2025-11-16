@@ -1,0 +1,46 @@
+[
+  {
+    "abv": "4.0%",
+    "brand": "Dogfish Head",
+    "calories": "95",
+    "carbs": "3.6g",
+    "description": "This innovative 'lo-cal' IPA delivers impressive hop character with minimal calories, using monk fruit to add body.",
+    "image": "https://target.scene7.com/is/image/Target/GUEST_77a4e88f-1d2c-49a3-aacc-e1f975104496?wid=300&hei=300&fmt=pjpeg",
+    "image_source": "https://www.target.com/p/dogfish-head-90-minute-imperial-ipa-beer-6pk-12-fl-oz-bottles/-/A-52880210",
+    "name": "Slightly Mighty",
+    "negative_feedback": "The use of monk fruit as a sweetener can create an aftertaste that some find unappealing.",
+    "positive_feedback": "Provides a full-flavored IPA experience for the same calorie count as a standard light lager.",
+    "price_range": "$10-13 per 6-pack",
+    "stores": [
+      {
+        "address": "11737 San Vicente Blvd, Los Angeles, CA 90049",
+        "distance": "0.7 miles",
+        "hours": "8:00 AM - 9:00 PM",
+        "name": "Whole Foods Market"
+      }
+    ],
+    "where_to_buy": "Craft beer retailers, Whole Foods, Total Wine"
+  },
+  {
+    "abv": "4.0%",
+    "brand": "Firestone Walker Brewing Company",
+    "calories": "96",
+    "carbs": "5g",
+    "description": "A hazy IPA that offers juicy, tropical hop notes while staying under 100 calories.",
+    "image": "https://www.wine-searcher.com/images/labels/66/69/10726669.jpg?width=175&height=234&fit=bounds&canvas=180%2C240&format=auto&auto=compress&dpr=1&quality=70",
+    "image_source": "https://www.wine-searcher.com/find/firestone+walker+brewing+co+lion+share+mixed+twelve+variety+beer+california+usa",
+    "name": "Flyjack",
+    "negative_feedback": "Slightly higher carb count compared to other lo-cal IPAs.",
+    "positive_feedback": "Provides the popular hazy IPA style in a low-calorie, sessionable format.",
+    "price_range": "$10-13 per 6-pack",
+    "stores": [
+      {
+        "address": "11620 Wilshire Blvd, Los Angeles, CA 90025",
+        "distance": "1.5 miles",
+        "hours": "10:00 AM - 9:00 PM",
+        "name": "BevMo!"
+      }
+    ],
+    "where_to_buy": "Total Wine, Whole Foods Market, Craft beer retailers"
+  }
+]

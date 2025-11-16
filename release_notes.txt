@@ -1,0 +1,4 @@
+Feature release 1.1
+-------------------
+
+This feature introduces the user to the Guilt Gulp app. User can search for beer by location. Their selection can be viewed on the selected beer page. User has the option to remove the beer from the list. Upon the close of session, the selection of beers is removed.

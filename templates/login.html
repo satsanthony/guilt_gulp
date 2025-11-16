@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#3498db">
+    <title>Login - Healthy Beer Finder</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/login.css') }}">
+</head>
+<body>
+    <div class="login-container">
+        <div class="login-card">
+            <div class="header-logo">
+                <img src="{{ url_for('static', filename='images/logo.png') }}" alt="Guilt Gulp Logo" class="logo-image">
+                <h1>Healthy Beer Finder</h1>
+            </div>
+
+            <div id="errorMessage" class="error-message" style="display: none;"></div>
+            <div id="successMessage" class="success-message" style="display: none;"></div>
+
+            <!-- Step 1: Email Input -->
+            <div id="emailStep" class="login-step">
+                <form id="emailForm" class="login-form">
+                    <div class="form-group">
+                        <label for="emailInput">Email Address</label>
+                        <input 
+                            type="email" 
+                            id="emailInput" 
+                            name="email"
+                            placeholder="Enter your email address"
+                            required
+                            autocomplete="email"
+                            autofocus
+                        >
+                    </div>
+                    <button type="submit" id="sendCodeBtn" class="login-btn">
+                        Send Security Code
+                    </button>
+                </form>
+            </div>
+
+            <!-- Step 2: Code Verification -->
+            <div id="codeStep" class="login-step" style="display: none;">
+                <div class="code-info">
+                    <p>We've sent a 6-digit security code to:</p>
+                    <p class="email-display" id="emailDisplay"></p>
+                </div>
+                <form id="codeForm" class="login-form">
+                    <div class="form-group">
+                        <label for="codeInput">Security Code</label>
+                        <input 
+                            type="text" 
+                            id="codeInput" 
+                            name="code"
+                            placeholder="Enter 6-digit code"
+                            maxlength="6"
+                            pattern="[0-9]{6}"
+                            required
+                            autocomplete="one-time-code"
+                            inputmode="numeric"
+                        >
+                        <small class="form-hint">Enter the 6-digit code sent to your email</small>
+                    </div>
+                    <div class="form-group">
+                        <label for="zipcodeInput">Zip Code</label>
+                        <input 
+                            type="text" 
+                            id="zipcodeInput" 
+                            name="zipcode"
+                            placeholder="Enter your zip code"
+                            maxlength="5"
+                            pattern="[0-9]{5}"
+                            required
+                            inputmode="numeric"
+                        >
+                        <small class="form-hint">Enter your 5-digit zip code for local results</small>
+                    </div>
+                    <button type="submit" id="verifyCodeBtn" class="login-btn">
+                        Verify Code
+                    </button>
+                    <button type="button" id="backToEmailBtn" class="link-btn">
+                        ← Back to email
+                    </button>
+                </form>
+            </div>
+
+            <div id="loadingSpinner" class="loading-spinner" style="display: none;">
+                <div class="spinner"></div>
+                <p id="loadingText">Processing...</p>
+            </div>
+            <footer>
+                <p>© 2025 Dimension Unlimited. All rights reserved. Drink responsibly.</p>
+            </footer>
+        </div>
+        
+    </div>
+    <script src="{{ url_for('static', filename='js/login.js') }}"></script>
+    
+</body>
+
+</html>
+
+
