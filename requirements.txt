@@ -2,7 +2,6 @@ streamlit==1.46.0
 anthropic==0.62.0
 python-dotenv==1.0.0
 requests==2.32.3
-numpy==2.3.0
 openai==1.99.6
 langchain==0.3.27
 langchain-anthropic==0.3.18
@@ -16,8 +15,6 @@ pillow==11.2.1
 pydantic==2.10.6
 tiktoken==0.11.0
 google-generativeai==0.3.2
-beautifulsoup4==4.13.4
-matplotlib-inline==0.1.7
 
 
 
