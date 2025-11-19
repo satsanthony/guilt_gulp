@@ -16,14 +16,25 @@ from login import init_login, require_auth
 from flask import Flask, render_template, request, jsonify, send_from_directory
 from werkzeug.utils import secure_filename
 from flask import session
+from datetime import timedelta
 
 langsmith_client = None
 if os.getenv('LANGCHAIN_API_KEY'):
     langsmith_client = Client()
 
 app = Flask(__name__)
-app.secret_key = os.getenv('FLASK_SECRET_KEY', 'dev-secret-key-change-in-production')  # Added this
-CORS(app)
+app.secret_key = os.getenv('FLASK_SECRET_KEY', 'dev-secret-key-change-in-production')
+
+# Add these session configurations for Docker/production
+app.config.update(
+    SESSION_COOKIE_SECURE=False,  # Set to False for HTTP (Hugging Face uses HTTP internally)
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE='Lax',
+    SESSION_TYPE='filesystem',  # Use filesystem-based sessions
+    PERMANENT_SESSION_LIFETIME=timedelta(hours=24)
+)
+
+CORS(app, supports_credentials=True)
 
 # Initialize login system
 init_login(app)
