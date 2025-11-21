@@ -46,8 +46,185 @@ else:
 # Files
 SELECTED_BEERS_FILE = 'selected_beers.json'
 SYSPROMPT_PATH = os.path.join(os.path.dirname(__file__), 'sysprompt.md')
+# --- UI & Styling Helpers ---
 
+def load_css():
+    """Load and inject custom CSS."""
+    css_dir = os.path.join(os.path.dirname(__file__), 'static', 'css')
+    
+    try:
+        with open(os.path.join(css_dir, 'dark-theme-variables.css'), 'r') as f:
+            vars_css = f.read()
+        with open(os.path.join(css_dir, 'style.css'), 'r') as f:
+            # Remove @import to avoid loading issues, we inject vars_css directly
+            main_css = f.read().replace("@import url('dark-theme-variables.css');", "")
+            
+        st.markdown(f"""
+        <style>
+            {vars_css}
+            {main_css}
+            
+            /* Streamlit specific overrides to match the theme */
+            .stApp {{
+                background-color: #0a0a0a;
+                background-image: 
+                    radial-gradient(circle at 20% 50%, rgba(212, 165, 116, 0.05) 0%, transparent 50%),
+                    radial-gradient(circle at 80% 80%, rgba(184, 115, 51, 0.05) 0%, transparent 50%);
+            }}
+            
+            /* Hide Streamlit's default elements if needed or style them */
+            div[data-testid="stExpander"] {{
+                background-color: transparent;
+                border: none;
+            }}
+            
+            /* Style buttons to match .search-btn or .nav-link */
+            .stButton > button {{
+                background: linear-gradient(135deg, var(--accent-amber) 0%, var(--accent-copper) 100%);
+                color: var(--bg-primary);
+                border: none;
+                border-radius: 12px;
+                font-weight: 600;
+                transition: all 0.3s ease;
+            }}
+            .stButton > button:hover {{
+                box-shadow: 0 0 25px rgba(244, 197, 66, 0.4);
+                color: white;
+                border-color: var(--accent-gold);
+            }}
+        </style>
+        """, unsafe_allow_html=True)
+    except Exception as e:
+        st.error(f"Failed to load CSS: {e}")
+
+def create_beer_card_html(beer):
+    """Generate HTML for a beer card matching the custom CSS structure."""
+    
+    # Handle image placeholder logic
+    beer_initial = beer.get('name', 'B')[0] if beer.get('name') else 'B'
+    image_style = f"background-image: url('{beer['image']}');" if beer.get('image') else \
+                  "background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); display: flex; align-items: center; justify-content: center; font-size: 4rem; color: white;"
+    
+    image_div = f"""
+    <div class="beer-image" style="{image_style}">
+        {'' if beer.get('image') else beer_initial}
+    </div>
+    """
+    
+    # Stats section
+    stats_html = '<div class="beer-stats">'
+    if beer.get('calories'):
+        stats_html += f'<div class="stat-item"><div class="stat-label">Calories</div><div class="stat-value">{beer["calories"]}</div></div>'
+    if beer.get('carbs'):
+        stats_html += f'<div class="stat-item"><div class="stat-label">Carbs</div><div class="stat-value">{beer["carbs"]}</div></div>'
+    if beer.get('abv'):
+        stats_html += f'<div class="stat-item"><div class="stat-label">ABV</div><div class="stat-value">{beer["abv"]}</div></div>'
+    stats_html += '</div>'
+    
+    # Stores section
+    stores_html = ''
+    if beer.get('stores'):
+        stores_list = "".join([
+            f'<div class="store-item"><div class="store-name">{s.get("name", "N/A")}</div>'
+            f'{f"<div class=\'store-address\'>📍 {s.get("address")}</div>" if s.get("address") else ""}'
+            f'</div>' for s in beer['stores']
+        ])
+        stores_html = f'<div class="beer-stores"><div class="stores-header">Available at:</div>{stores_list}</div>'
+
+    # Full Card HTML
+    return f"""
+    <div class="beer-card">
+        {image_div}
+        <div class="beer-name">{beer.get('name')}</div>
+        <div class="beer-brand">{beer.get('brand', 'Craft Beer')}</div>
+        {stats_html}
+        <div class="beer-description">{beer.get('description', '')}</div>
+        <div class="beer-info">
+            {f'<div class="info-item"><span class="info-label">Price:</span> {beer["price_range"]}</div>' if beer.get('price_range') else ''}
+            {f'<div class="info-item"><span class="info-label">Where to Buy:</span> {beer["where_to_buy"]}</div>' if beer.get('where_to_buy') else ''}
+        </div>
+        {stores_html}
+    </div>
+    """
 # --- Helper Functions (Adapted from app.py/login.py) ---
+def login_screen():
+    load_css() # Inject CSS
+    st.title("🍺 Beer Finder Login")
+    
+    col1, col2 = st.columns([1, 2])
+
+def main_app():
+    load_css() # Inject CSS
+    # Sidebar
+    with st.sidebar:
+        st.header(f"Welcome, {st.session_state.email.split('@')[0]}")
+
+def search_page():
+    st.title("🔍 Find Healthy Beers")
+    
+    query = st.text_input("What are you looking for?", placeholder="e.g., low calorie IPA, gluten free lager")
+    
+    if st.button("Search", type="primary"):
+        if not query:
+            st.warning("Please enter a search term.")
+            return
+            
+        with st.spinner("Consulting the beer sommelier..."):
+            results = get_ai_recommendations(query, st.session_state.zipcode)
+            st.session_state.search_results = results
+    
+    # Display Results
+    if 'search_results' in st.session_state and st.session_state.search_results:
+        st.subheader("Recommendations")
+        
+        st.markdown('<div class="beer-results">', unsafe_allow_html=True)
+        
+        # Display beers using the custom HTML card structure
+        for i, beer in enumerate(st.session_state.search_results):
+            # Render the card HTML
+            st.markdown(create_beer_card_html(beer), unsafe_allow_html=True)
+            
+            # Place the "Save" button right after the card
+            # We use a column to offset it or just place it below
+            col_btn, col_space = st.columns([1, 4])
+            with col_btn:
+                if st.button("Save to List", key=f"save_{i}_{beer.get('name')}"):
+                    current_list = load_selected_beers()
+                    if not any(b['name'] == beer['name'] for b in current_list):
+                        current_list.append(beer)
+                        save_selected_beers(current_list)
+                        st.toast(f"Saved {beer['name']}!")
+                    else:
+                        st.toast("Already in your list.")
+            
+            st.markdown("<br>", unsafe_allow_html=True) # Spacing
+            
+        st.markdown('</div>', unsafe_allow_html=True)
+
+def selected_page():
+    st.title("📋 Your Selected Beers")
+    
+    beers = load_selected_beers()
+    
+    if not beers:
+        st.info("No beers selected yet. Go search for some!")
+        return
+
+    st.markdown('<div class="beer-results">', unsafe_allow_html=True)
+    
+    for i, beer in enumerate(beers):
+        st.markdown(create_beer_card_html(beer), unsafe_allow_html=True)
+        
+        col_btn, col_space = st.columns([1, 4])
+        with col_btn:
+            if st.button("Remove", key=f"del_{i}_{beer.get('name')}"):
+                new_list = [b for b in beers if b['name'] != beer['name']]
+                save_selected_beers(new_list)
+                st.rerun()
+                
+        st.markdown("<br>", unsafe_allow_html=True)
+        
+    st.markdown('</div>', unsafe_allow_html=True)
 
 def send_security_code_email(email, code):
     """Send security code to user's email."""
