@@ -46,6 +46,7 @@ else:
 # Files
 SELECTED_BEERS_FILE = 'selected_beers.json'
 SYSPROMPT_PATH = os.path.join(os.path.dirname(__file__), 'sysprompt.md')
+
 # --- UI & Styling Helpers ---
 
 def load_css():
@@ -124,12 +125,15 @@ def create_beer_card_html(beer):
     # Stores section
     stores_html = ''
     if beer.get('stores'):
-        stores_list = "".join([
-            f'<div class="store-item"><div class="store-name">{s.get("name", "N/A")}</div>'
-            f'{f"<div class=\'store-address\'>📍 {s.get("address")}</div>" if s.get("address") else ""}'
-            f'</div>' for s in beer['stores']
-        ])
-        stores_html = f'<div class="beer-stores"><div class="stores-header">Available at:</div>{stores_list}</div>'
+        store_items = []
+        for s in beer['stores']:
+            name_div = f'<div class="store-name">{s.get("name", "N/A")}</div>'
+            # Avoid backslash inside f-string expression by calculating outside
+            address_val = s.get("address")
+            address_div = f'<div class="store-address">📍 {address_val}</div>' if address_val else ""
+            store_items.append(f'<div class="store-item">{name_div}{address_div}</div>')
+            
+        stores_html = f'<div class="beer-stores"><div class="stores-header">Available at:</div>{"".join(store_items)}</div>'
 
     # Full Card HTML
     return f"""
@@ -146,85 +150,8 @@ def create_beer_card_html(beer):
         {stores_html}
     </div>
     """
+
 # --- Helper Functions (Adapted from app.py/login.py) ---
-def login_screen():
-    load_css() # Inject CSS
-    st.title("🍺 Beer Finder Login")
-    
-    col1, col2 = st.columns([1, 2])
-
-def main_app():
-    load_css() # Inject CSS
-    # Sidebar
-    with st.sidebar:
-        st.header(f"Welcome, {st.session_state.email.split('@')[0]}")
-
-def search_page():
-    st.title("🔍 Find Healthy Beers")
-    
-    query = st.text_input("What are you looking for?", placeholder="e.g., low calorie IPA, gluten free lager")
-    
-    if st.button("Search", type="primary"):
-        if not query:
-            st.warning("Please enter a search term.")
-            return
-            
-        with st.spinner("Consulting the beer sommelier..."):
-            results = get_ai_recommendations(query, st.session_state.zipcode)
-            st.session_state.search_results = results
-    
-    # Display Results
-    if 'search_results' in st.session_state and st.session_state.search_results:
-        st.subheader("Recommendations")
-        
-        st.markdown('<div class="beer-results">', unsafe_allow_html=True)
-        
-        # Display beers using the custom HTML card structure
-        for i, beer in enumerate(st.session_state.search_results):
-            # Render the card HTML
-            st.markdown(create_beer_card_html(beer), unsafe_allow_html=True)
-            
-            # Place the "Save" button right after the card
-            # We use a column to offset it or just place it below
-            col_btn, col_space = st.columns([1, 4])
-            with col_btn:
-                if st.button("Save to List", key=f"save_{i}_{beer.get('name')}"):
-                    current_list = load_selected_beers()
-                    if not any(b['name'] == beer['name'] for b in current_list):
-                        current_list.append(beer)
-                        save_selected_beers(current_list)
-                        st.toast(f"Saved {beer['name']}!")
-                    else:
-                        st.toast("Already in your list.")
-            
-            st.markdown("<br>", unsafe_allow_html=True) # Spacing
-            
-        st.markdown('</div>', unsafe_allow_html=True)
-
-def selected_page():
-    st.title("📋 Your Selected Beers")
-    
-    beers = load_selected_beers()
-    
-    if not beers:
-        st.info("No beers selected yet. Go search for some!")
-        return
-
-    st.markdown('<div class="beer-results">', unsafe_allow_html=True)
-    
-    for i, beer in enumerate(beers):
-        st.markdown(create_beer_card_html(beer), unsafe_allow_html=True)
-        
-        col_btn, col_space = st.columns([1, 4])
-        with col_btn:
-            if st.button("Remove", key=f"del_{i}_{beer.get('name')}"):
-                new_list = [b for b in beers if b['name'] != beer['name']]
-                save_selected_beers(new_list)
-                st.rerun()
-                
-        st.markdown("<br>", unsafe_allow_html=True)
-        
-    st.markdown('</div>', unsafe_allow_html=True)
 
 def send_security_code_email(email, code):
     """Send security code to user's email."""
@@ -354,6 +281,7 @@ if 'zipcode' not in st.session_state:
 # --- UI Components ---
 
 def login_screen():
+    load_css() # Inject CSS
     st.title("🍺 Beer Finder Login")
     
     col1, col2 = st.columns([1, 2])
@@ -400,6 +328,7 @@ def login_screen():
 
 
 def main_app():
+    load_css() # Inject CSS
     # Sidebar
     with st.sidebar:
         st.header(f"Welcome, {st.session_state.email.split('@')[0]}")
@@ -435,30 +364,28 @@ def search_page():
     if 'search_results' in st.session_state and st.session_state.search_results:
         st.subheader("Recommendations")
         
-        for beer in st.session_state.search_results:
-            with st.expander(f"{beer.get('name')} ({beer.get('calories', 'N/A')})", expanded=True):
-                c1, c2 = st.columns([1, 3])
-                with c1:
-                    if beer.get('image'):
-                        st.image(beer['image'], use_container_width=True)
+        st.markdown('<div class="beer-results">', unsafe_allow_html=True)
+        
+        for i, beer in enumerate(st.session_state.search_results):
+            # Render the card HTML
+            st.markdown(create_beer_card_html(beer), unsafe_allow_html=True)
+            
+            # Place the "Save" button right after the card
+            col_btn, col_space = st.columns([1, 4])
+            with col_btn:
+                if st.button("Save to List", key=f"save_{i}_{beer.get('name')}"):
+                    current_list = load_selected_beers()
+                    # Check for duplicates
+                    if not any(b['name'] == beer['name'] for b in current_list):
+                        current_list.append(beer)
+                        save_selected_beers(current_list)
+                        st.toast(f"Saved {beer['name']}!")
                     else:
-                        st.text("No Image")
-                
-                with c2:
-                    st.markdown(f"**Brand:** {beer.get('brand')}")
-                    st.markdown(f"_{beer.get('description')}_")
-                    st.markdown(f"**Stats:** {beer.get('abv')} ABV | {beer.get('carbs')} Carbs")
-                    st.markdown(f"**Why it fits:** {beer.get('positive_feedback')}")
-                    
-                    if st.button("Save to List", key=f"save_{beer.get('name')}"):
-                        current_list = load_selected_beers()
-                        # Check for duplicates
-                        if not any(b['name'] == beer['name'] for b in current_list):
-                            current_list.append(beer)
-                            save_selected_beers(current_list)
-                            st.toast(f"Saved {beer['name']}!")
-                        else:
-                            st.toast("Already in your list.")
+                        st.toast("Already in your list.")
+            
+            st.markdown("<br>", unsafe_allow_html=True) # Spacing
+            
+        st.markdown('</div>', unsafe_allow_html=True)
 
 def selected_page():
     st.title("📋 Your Selected Beers")
@@ -469,21 +396,21 @@ def selected_page():
         st.info("No beers selected yet. Go search for some!")
         return
 
-    for beer in beers:
-        with st.container(border=True):
-            c1, c2, c3 = st.columns([1, 3, 1])
-            with c1:
-                if beer.get('image'):
-                    st.image(beer['image'], width=100)
-            with c2:
-                st.subheader(beer.get('name'))
-                st.caption(beer.get('brand'))
-                st.write(f"🛒 {beer.get('where_to_buy')}")
-            with c3:
-                if st.button("Remove", key=f"del_{beer.get('name')}"):
-                    new_list = [b for b in beers if b['name'] != beer['name']]
-                    save_selected_beers(new_list)
-                    st.rerun()
+    st.markdown('<div class="beer-results">', unsafe_allow_html=True)
+    
+    for i, beer in enumerate(beers):
+        st.markdown(create_beer_card_html(beer), unsafe_allow_html=True)
+        
+        col_btn, col_space = st.columns([1, 4])
+        with col_btn:
+            if st.button("Remove", key=f"del_{i}_{beer.get('name')}"):
+                new_list = [b for b in beers if b['name'] != beer['name']]
+                save_selected_beers(new_list)
+                st.rerun()
+                
+        st.markdown("<br>", unsafe_allow_html=True)
+        
+    st.markdown('</div>', unsafe_allow_html=True)
 
 # --- Main Entry Point ---
 if __name__ == "__main__":
