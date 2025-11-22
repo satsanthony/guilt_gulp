@@ -614,10 +614,19 @@ def selected_page():
         if st.button(f"🗑️ Remove", key=f"remove_{i}"):
             st.session_state.selected_beers = [b for b in st.session_state.selected_beers if b.get('name') != beer.get('name')]
             st.rerun()
+def render_footer():
+    """Render the footer on all pages."""
+    st.markdown("""
+    <div style="margin-top: 50px; padding: 20px 0; border-top: 2px solid rgba(212, 165, 116, 0.2); text-align: center;">
+        <p style="color: var(--text-muted); font-size: 0.85rem; margin: 0;">© 2025 Dimension Unlimited. All rights reserved. Drink responsibly.</p>
+    </div>
+    """, unsafe_allow_html=True)
 
 # --- Main ---
 if __name__ == "__main__":
     if st.session_state.authenticated:
         main_app()
+        render_footer()
     else:
         login_screen()
+        render_footer()
