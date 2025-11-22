@@ -38,7 +38,7 @@ if GENAI_AVAILABLE and GEMINI_API_KEY:
     try:
         genai.configure(api_key=GEMINI_API_KEY)
         # Use a valid model name - options: gemini-1.5-pro, gemini-1.5-flash, gemini-2.0-flash
-        processing_model = genai.GenerativeModel('gemini-3-preview')
+        processing_model = genai.GenerativeModel('gemini-3-pro-preview')
     except Exception as e:
         st.error(f"Failed to configure Gemini: {e}")
 
