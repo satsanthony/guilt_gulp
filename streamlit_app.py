@@ -150,7 +150,7 @@ def create_beer_card_html(beer):
         {stores_html}
     </div>
     """
-
+    return html_content.replace('\n', '').replace('    ', '')
 # --- Helper Functions (Adapted from app.py/login.py) ---
 
 def send_security_code_email(email, code):
