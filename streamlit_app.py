@@ -136,7 +136,7 @@ def create_beer_card_html(beer):
         stores_html = f'<div class="beer-stores"><div class="stores-header">Available at:</div>{"".join(store_items)}</div>'
 
     # Full Card HTML
-    return f"""
+    html_content = f"""
     <div class="beer-card">
         {image_div}
         <div class="beer-name">{beer.get('name')}</div>
