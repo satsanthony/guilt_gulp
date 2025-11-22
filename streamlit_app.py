@@ -468,6 +468,8 @@ if 'selected_beers' not in st.session_state:
     st.session_state.selected_beers = []
 if 'search_results' not in st.session_state:
     st.session_state.search_results = []
+if 'current_page' not in st.session_state:
+    st.session_state.current_page = 'search'
 
 # --- Pages ---
 
@@ -515,22 +517,51 @@ def login_screen():
 def main_app():
     inject_custom_css()
     
-    # Sidebar
-    with st.sidebar:
-        st.markdown(f"### 👋 Welcome!")
-        st.markdown(f"**{st.session_state.email.split('@')[0]}**")
-        st.markdown(f"📍 Zipcode: {st.session_state.zipcode}")
-        st.markdown("---")
-        
-        page = st.radio("Navigation", ["🔍 Find Beers", "📋 My List"], label_visibility="collapsed")
-        
-        st.markdown("---")
+    # Initialize page state
+    if 'current_page' not in st.session_state:
+        st.session_state.current_page = 'search'
+    
+    # TOP NAVIGATION BAR (visible on all screen sizes)
+    st.markdown(f"""
+    <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px 0; margin-bottom: 10px; border-bottom: 2px solid rgba(212, 165, 116, 0.2);">
+        <div style="color: var(--accent-gold); font-weight: 600;">👋 {st.session_state.email.split('@')[0]} | 📍 {st.session_state.zipcode}</div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Navigation buttons in main content area
+    nav_col1, nav_col2, nav_col3 = st.columns([2, 2, 1])
+    
+    with nav_col1:
+        if st.button("🔍 Find Beers", use_container_width=True, type="primary" if st.session_state.current_page == 'search' else "secondary"):
+            st.session_state.current_page = 'search'
+            st.rerun()
+    
+    with nav_col2:
+        # Show count of saved beers
+        saved_count = len(st.session_state.selected_beers)
+        btn_label = f"📋 My List ({saved_count})" if saved_count > 0 else "📋 My List"
+        if st.button(btn_label, use_container_width=True, type="primary" if st.session_state.current_page == 'selected' else "secondary"):
+            st.session_state.current_page = 'selected'
+            st.rerun()
+    
+    with nav_col3:
         if st.button("🚪 Logout", use_container_width=True):
             for key in list(st.session_state.keys()):
                 del st.session_state[key]
             st.rerun()
     
-    if page == "🔍 Find Beers":
+    st.markdown("---")
+    
+    # Sidebar (optional, for larger screens)
+    with st.sidebar:
+        st.markdown(f"### 👋 Welcome!")
+        st.markdown(f"**{st.session_state.email.split('@')[0]}**")
+        st.markdown(f"📍 Zipcode: {st.session_state.zipcode}")
+        st.markdown("---")
+        st.markdown(f"**Saved Beers:** {len(st.session_state.selected_beers)}")
+    
+    # Page content based on current_page state
+    if st.session_state.current_page == 'search':
         search_page()
     else:
         selected_page()
