@@ -346,13 +346,34 @@ def ensure_beer_image(beer):
             beer['image'] = image_url
     return beer
 
-def get_ai_recommendations(query, zipcode):
-    """Get beer recommendations from Gemini."""
+def get_ai_recommendations(query, zipcode, mode='angel'):
+    """Get beer recommendations from Gemini based on selected mode."""
     if not processing_model:
         st.error("⚠️ Gemini API not configured. Please set GEMINI_API_KEY.")
         return []
 
-    prompt = f"""You are a helpful assistant specializing in healthy, low-calorie beer options.
+    # Mode-specific prompts
+    mode_prompts = {
+        'angel': """You specialize in HEALTHY, LOW-CALORIE beer options. Focus on:
+- Beers under 100 calories when possible
+- Low carb options (under 5g carbs)
+- Light lagers, session IPAs, and "skinny" beers
+- Gluten-free or gluten-reduced options if relevant""",
+        
+        'devil': """You specialize in RICH, INDULGENT, FULL-FLAVORED beers. Focus on:
+- Bold, flavorful craft beers with complex profiles
+- Stouts, porters, Belgian ales, barrel-aged beers
+- High ABV options with rich taste
+- Award-winning and highly-rated beers""",
+        
+        'random': """You recommend a MIX of interesting and unique beers. Focus on:
+- A variety of styles from light to bold
+- Unique or unusual beers the user might not know
+- Mix of healthy options and indulgent choices
+- Surprise picks that are highly rated"""
+    }
+
+    prompt = f"""{mode_prompts.get(mode, mode_prompts['angel'])}
 
 User query: "{query}"
 Target zipcode: {zipcode}
@@ -368,9 +389,6 @@ Each object must have these exact fields:
 - "price_range": string (e.g., "$8-12 per 6-pack")
 - "where_to_buy": string (general availability)
 - "stores": array of objects, each with "name", "address", "distance"
-
-Example:
-[{{"name":"Michelob Ultra","brand":"Anheuser-Busch","calories":"95 cal","carbs":"2.6g","abv":"4.2%","description":"A light lager.","price_range":"$9-12","where_to_buy":"Most stores","stores":[{{"name":"Whole Foods","address":"123 Main St","distance":"0.5 mi"}}]}}]
 
 IMPORTANT: Return ONLY the JSON array, nothing else."""
 
@@ -470,6 +488,8 @@ if 'search_results' not in st.session_state:
     st.session_state.search_results = []
 if 'current_page' not in st.session_state:
     st.session_state.current_page = 'search'
+if 'beer_mode' not in st.session_state:
+    st.session_state.beer_mode = None
 
 # --- Pages ---
 
@@ -614,6 +634,7 @@ def selected_page():
         if st.button(f"🗑️ Remove", key=f"remove_{i}"):
             st.session_state.selected_beers = [b for b in st.session_state.selected_beers if b.get('name') != beer.get('name')]
             st.rerun()
+
 def render_footer():
     """Render the footer on all pages."""
     st.markdown("""
