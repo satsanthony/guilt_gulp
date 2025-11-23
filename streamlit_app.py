@@ -496,43 +496,94 @@ if 'beer_mode' not in st.session_state:
 def login_screen():
     inject_custom_css()
     
-    st.title("🍺 Beer Finder")
-    st.markdown("*Find healthy, low-calorie beers near you*")
+    # Centered container for logo and title
+    st.markdown("""
+    <style>
+    .login-header {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 20px;
+        margin-bottom: 30px;
+        padding: 20px 0;
+    }
+    .login-logo img {
+        border-radius: 50%;
+        border: 3px solid var(--accent-amber);
+        box-shadow: 0 0 20px rgba(212, 165, 116, 0.4);
+    }
+    .login-title {
+        font-size: 2.5rem;
+        font-weight: 700;
+        color: var(--accent-gold);
+        margin: 0;
+    }
+    .login-form {
+        max-width: 400px;
+        margin: 0 auto;
+    }
+    .privacy-note {
+        font-size: 0.75rem;
+        color: var(--text-muted);
+        font-style: italic;
+        margin-top: 5px;
+        text-align: center;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    # Logo and Title side by side
+    logo_path = os.path.join(os.path.dirname(__file__), "static", "images", "logo.png")
+    
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        logo_col, title_col = st.columns([1, 2])
+        with logo_col:
+            if os.path.exists(logo_path):
+                st.image(logo_path, width=80)
+        with title_col:
+            st.markdown('<h1 class="login-title">Beer Finder</h1>', unsafe_allow_html=True)
+    
     st.markdown("---")
     
-    if st.session_state.login_step == 'email':
-        email = st.text_input("📧 Email Address", placeholder="your@email.com")
-        
-        if st.button("Send Code", type="primary", use_container_width=True):
-            if '@' in email and '.' in email:
-                code = str(random.randint(100000, 999999))
-                st.session_state.email = email
-                st.session_state.expected_code = code
-                st.success(f"🔐 Demo Mode - Your code: **{code}**")
-                st.session_state.login_step = 'code'
-                st.rerun()
-            else:
-                st.error("Please enter a valid email address.")
-                
-    elif st.session_state.login_step == 'code':
-        st.info(f"📬 Code sent to: **{st.session_state.email}**")
-        
-        code_input = st.text_input("🔢 Enter 6-digit Code", value=st.session_state.expected_code, max_chars=6)
-        zip_input = st.text_input("📍 Your Zipcode", value=st.session_state.zipcode)
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("✅ Verify", type="primary", use_container_width=True):
-                if code_input == st.session_state.expected_code:
-                    st.session_state.authenticated = True
-                    st.session_state.zipcode = zip_input
+    # Centered form container
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        if st.session_state.login_step == 'email':
+            st.markdown("**Enter your email address**")
+            email = st.text_input("", placeholder="your@email.com", label_visibility="collapsed")
+            st.markdown('<p class="privacy-note">(your email address will not be used for marketing purposes)</p>', unsafe_allow_html=True)
+            
+            if st.button("Send Code", type="primary", use_container_width=True):
+                if '@' in email and '.' in email:
+                    code = str(random.randint(100000, 999999))
+                    st.session_state.email = email
+                    st.session_state.expected_code = code
+                    st.success(f"🔐 Demo Mode - Your code: **{code}**")
+                    st.session_state.login_step = 'code'
                     st.rerun()
                 else:
-                    st.error("Invalid code.")
-        with col2:
-            if st.button("⬅️ Back", use_container_width=True):
-                st.session_state.login_step = 'email'
-                st.rerun()
+                    st.error("Please enter a valid email address.")
+                    
+        elif st.session_state.login_step == 'code':
+            st.info(f"📬 Code sent to: **{st.session_state.email}**")
+            
+            code_input = st.text_input("🔢 Enter 6-digit Code", value=st.session_state.expected_code, max_chars=6)
+            zip_input = st.text_input("📍 Your Zipcode", value=st.session_state.zipcode)
+            
+            btn_col1, btn_col2 = st.columns(2)
+            with btn_col1:
+                if st.button("✅ Verify", type="primary", use_container_width=True):
+                    if code_input == st.session_state.expected_code:
+                        st.session_state.authenticated = True
+                        st.session_state.zipcode = zip_input
+                        st.rerun()
+                    else:
+                        st.error("Invalid code.")
+            with btn_col2:
+                if st.button("⬅️ Back", use_container_width=True):
+                    st.session_state.login_step = 'email'
+                    st.rerun()
 
 def main_app():
     inject_custom_css()
@@ -541,67 +592,115 @@ def main_app():
     if 'current_page' not in st.session_state:
         st.session_state.current_page = 'search'
     
-    # TOP NAVIGATION BAR (visible on all screen sizes)
-    st.markdown(f"""
-    <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px 0; margin-bottom: 10px; border-bottom: 2px solid rgba(212, 165, 116, 0.2);">
-        <div style="color: var(--accent-gold); font-weight: 600;">👋 {st.session_state.email.split('@')[0]} | 📍 {st.session_state.zipcode}</div>
-    </div>
-    """, unsafe_allow_html=True)
+    # TOP NAVIGATION BAR - User info only
+    saved_count = len(st.session_state.selected_beers)
     
-    # Navigation buttons in main content area
-    nav_col1, nav_col2, nav_col3 = st.columns([2, 2, 1])
+    # Show user info and My List button only if there are saved beers
+    if saved_count > 0:
+        col1, col2 = st.columns([4, 1])
+        with col1:
+            st.markdown(f"""
+            <div style="color: var(--accent-gold); font-weight: 600; padding: 10px 0;">
+                👋 {st.session_state.email.split('@')[0]} | 📍 {st.session_state.zipcode}
+            </div>
+            """, unsafe_allow_html=True)
+        with col2:
+            if st.button(f"📋 My List ({saved_count})", use_container_width=True, type="primary"):
+                st.session_state.current_page = 'selected'
+                st.rerun()
+        st.markdown("---")
+    else:
+        # Just show user info - no buttons
+        st.markdown(f"""
+        <div style="padding: 10px 0; margin-bottom: 10px; border-bottom: 2px solid rgba(212, 165, 116, 0.2);">
+            <div style="color: var(--accent-gold); font-weight: 600;">👋 {st.session_state.email.split('@')[0]} | 📍 {st.session_state.zipcode}</div>
+        </div>
+        """, unsafe_allow_html=True)
     
-    with nav_col1:
-        if st.button("🔍 Find Beers", use_container_width=True, type="primary" if st.session_state.current_page == 'search' else "secondary"):
-            st.session_state.current_page = 'search'
-            st.rerun()
-    
-    with nav_col2:
-        # Show count of saved beers
-        saved_count = len(st.session_state.selected_beers)
-        btn_label = f"📋 My List ({saved_count})" if saved_count > 0 else "📋 My List"
-        if st.button(btn_label, use_container_width=True, type="primary" if st.session_state.current_page == 'selected' else "secondary"):
-            st.session_state.current_page = 'selected'
-            st.rerun()
-    
-    with nav_col3:
-        if st.button("🚪 Logout", use_container_width=True):
-            for key in list(st.session_state.keys()):
-                del st.session_state[key]
-            st.rerun()
-    
-    st.markdown("---")
-    
-    # Sidebar (optional, for larger screens)
+    # Logout button in sidebar (accessible but not prominent)
     with st.sidebar:
         st.markdown(f"### 👋 Welcome!")
         st.markdown(f"**{st.session_state.email.split('@')[0]}**")
         st.markdown(f"📍 Zipcode: {st.session_state.zipcode}")
         st.markdown("---")
-        st.markdown(f"**Saved Beers:** {len(st.session_state.selected_beers)}")
+        st.markdown(f"**Saved Beers:** {saved_count}")
+        st.markdown("---")
+        if st.button("🚪 Logout", use_container_width=True):
+            for key in list(st.session_state.keys()):
+                del st.session_state[key]
+            st.rerun()
     
     # Page content based on current_page state
     if st.session_state.current_page == 'search':
         search_page()
-    else:
+    elif st.session_state.current_page == 'selected':
         selected_page()
 
 def search_page():
-    st.title("🔍 Find Healthy Beers")
+    st.title("🔍 Find Your Perfect Beer")
     
-    query = st.text_input("What are you looking for?", placeholder="e.g., low calorie IPA, gluten free lager")
+    # MODE SELECTION
+    st.markdown("### Choose Your Beer Adventure")
+    st.markdown("Select your beer discovery style:")
     
-    if st.button("🍺 Search", type="primary", use_container_width=True):
-        if not query:
-            st.warning("Please enter a search term.")
-        elif not processing_model:
-            st.error("⚠️ Gemini API not configured. Add GEMINI_API_KEY to Secrets.")
-        else:
-            with st.spinner("🔍 Finding the best beers for you..."):
-                results = get_ai_recommendations(query, st.session_state.zipcode)
-                st.session_state.search_results = results
+    col1, col2, col3 = st.columns(3)
     
-    # Display Results
+    with col1:
+        if st.button("😇 Angel's Choice\n\n*Light & virtuous*\n\nLow-calorie, healthy options", 
+                     key="angel_mode", 
+                     use_container_width=True,
+                     type="primary" if st.session_state.beer_mode == 'angel' else "secondary"):
+            st.session_state.beer_mode = 'angel'
+            st.rerun()
+    
+    with col2:
+        if st.button("😈 Devil's Delight\n\n*Sinfully delicious*\n\nRich, bold, indulgent", 
+                     key="devil_mode", 
+                     use_container_width=True,
+                     type="primary" if st.session_state.beer_mode == 'devil' else "secondary"):
+            st.session_state.beer_mode = 'devil'
+            st.rerun()
+    
+    with col3:
+        if st.button("🎲 Flip a Coin\n\n*Feeling lucky?*\n\nSurprising mix", 
+                     key="random_mode", 
+                     use_container_width=True,
+                     type="primary" if st.session_state.beer_mode == 'random' else "secondary"):
+            st.session_state.beer_mode = 'random'
+            st.rerun()
+    
+    # Show selected mode
+    if st.session_state.beer_mode:
+        mode_names = {'angel': '😇 Angel\'s Choice', 'devil': '😈 Devil\'s Delight', 'random': '🎲 Flip a Coin'}
+        st.success(f"Selected: {mode_names[st.session_state.beer_mode]}")
+    
+    st.markdown("---")
+    
+    # SEARCH INPUT (only show if mode is selected)
+    if st.session_state.beer_mode:
+        # Dynamic placeholder based on mode
+        placeholders = {
+        'angel': "e.g., low calorie IPA, light lager, gluten-free options",
+        'devil': "e.g., bourbon barrel-aged stout, triple IPA, Belgian quad",
+        'random': "e.g., something unique, surprise me, local craft favorites"
+        }
+        placeholder_text = placeholders.get(st.session_state.beer_mode, "What kind of beer are you craving?")
+
+        query = st.text_input("What are you looking for?", placeholder=placeholder_text)
+        if st.button("🍺 Search", type="primary", use_container_width=True):
+            if not query:
+                st.warning("Please enter a search term.")
+            elif not processing_model:
+                st.error("⚠️ Gemini API not configured. Add GEMINI_API_KEY to Secrets.")
+            else:
+                with st.spinner("🔍 Finding the best beers for you..."):
+                    # Pass the selected mode to the function
+                    results = get_ai_recommendations(query, st.session_state.zipcode, mode=st.session_state.beer_mode)
+                    st.session_state.search_results = results
+    else:
+        st.info("👆 Please select a beer discovery mode above to continue")
+    
+    # Display Results (THIS WAS MISSING!)
     if st.session_state.search_results:
         st.markdown("---")
         st.subheader(f"🍺 Found {len(st.session_state.search_results)} recommendations")
@@ -615,14 +714,23 @@ def search_page():
                 if not any(b.get('name') == beer.get('name') for b in st.session_state.selected_beers):
                     st.session_state.selected_beers.append(beer)
                     st.toast(f"✅ Saved {beer.get('name')}!")
+                    st.rerun()  # Rerun to update the My List button
                 else:
                     st.toast("Already in your list!")
 
 def selected_page():
+    # Back button at the top
+    if st.button("⬅️ Back to Search", use_container_width=False):
+        st.session_state.current_page = 'search'
+        st.rerun()
+    
     st.title("📋 Your Selected Beers")
     
     if not st.session_state.selected_beers:
         st.info("🍺 No beers saved yet. Go search for some!")
+        if st.button("🔍 Start Searching", type="primary", use_container_width=True):
+            st.session_state.current_page = 'search'
+            st.rerun()
         return
     
     st.markdown(f"**{len(st.session_state.selected_beers)} beer(s) saved**")
