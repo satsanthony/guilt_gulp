@@ -338,7 +338,7 @@ def google_custom_search(query, num=1):
     return None
 
 def ensure_beer_image(beer):
-    """Add image URL to beer if missing."""
+    """Add image URL to beer if missing"""
     if not beer.get('image'):
         query = f"{beer.get('name', '')} {beer.get('brand', '')} beer bottle"
         image_url = google_custom_search(query)
