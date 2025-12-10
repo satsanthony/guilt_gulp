@@ -3,14 +3,23 @@ import os
 import json
 import random
 import requests
+import datetime
+from datetime import timedelta
+import base64
+from io import BytesIO
+from PIL import Image
 
 # --- Configuration & Setup ---
 st.set_page_config(
-    page_title="Beer Finder",
+    page_title="Beer Finder AI",
     page_icon="🍺",
-    layout="wide",
+    layout="centered",
     initial_sidebar_state="collapsed"
 )
+
+# Setup directories
+STATIC_IMG_DIR = os.path.join(os.path.dirname(__file__), "static", "images")
+os.makedirs(STATIC_IMG_DIR, exist_ok=True)
 
 # Try to import Google Generative AI
 try:
@@ -27,735 +36,568 @@ try:
 except ImportError:
     pass
 
-# API Keys - For HuggingFace Spaces, use Secrets
+# API Keys
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
 GOOGLE_CSE_API_KEY = os.getenv('GOOGLE_CSE_API_KEY')
 GOOGLE_CSE_CX = os.getenv('GOOGLE_CSE_CX')
 
-# Configure Gemini - Use correct model name
+# Configure Gemini
 processing_model = None
+
 if GENAI_AVAILABLE and GEMINI_API_KEY:
     try:
         genai.configure(api_key=GEMINI_API_KEY)
-        # Valid models: gemini-1.5-pro, gemini-1.5-flash, gemini-2.0-flash-exp
-        processing_model = genai.GenerativeModel('gemini-3-pro-preview')
+        # Text/Reasoning Model
+        processing_model = genai.GenerativeModel('gemini-3-pro-preview') 
     except Exception as e:
         st.error(f"Failed to configure Gemini: {e}")
 
-# --- COMPLETE CSS INJECTION ---
-def inject_custom_css():
-    """Inject all custom CSS directly into Streamlit."""
+# --- MOBILE STYLED CSS ---
+def inject_mobile_css():
     st.markdown("""
     <style>
-        /* === DARK THEME VARIABLES === */
+        /* === THEME VARIABLES === */
         :root {
-            --bg-primary: #0a0a0a;
-            --bg-secondary: #1a1a1a;
-            --bg-tertiary: #2a2a2a;
-            --bg-card: rgba(30, 30, 30, 0.95);
-            --accent-amber: #d4a574;
-            --accent-gold: #f4c542;
-            --accent-copper: #b87333;
-            --text-primary: #f5f5f5;
-            --text-secondary: #cccccc;
-            --text-muted: #999999;
-            --border-color: rgba(212, 165, 116, 0.2);
-            --border-hover: rgba(212, 165, 116, 0.4);
+            --bg-app: #000000;
+            --bg-card: #1a1a1a;
+            --text-main: #ffffff;
+            --text-sub: #b0b0b0;
+            --accent: #d4a574; /* Amber */
+            --input-bg: #ffffff;
+            --input-text: #000000;
         }
-        
-        /* === STREAMLIT OVERRIDES === */
+
+        /* === APP CONTAINER === */
         .stApp {
-            background-color: var(--bg-primary) !important;
-            background-image: 
-                radial-gradient(circle at 20% 50%, rgba(212, 165, 116, 0.05) 0%, transparent 50%),
-                radial-gradient(circle at 80% 80%, rgba(184, 115, 51, 0.05) 0%, transparent 50%);
+            background-color: var(--bg-app);
+            color: var(--text-main);
         }
         
-        /* Hide Streamlit elements */
-        #MainMenu, footer, header {visibility: hidden;}
-        .stDeployButton {display: none;}
-        
-        /* Make all text readable */
-        .stApp, .stMarkdown, p, span, label, div {
-            color: var(--text-primary) !important;
+        .block-container {
+            max-width: 450px !important;
+            padding: 2rem 1rem !important;
+            margin: 0 auto;
+        }
+
+        /* Hide Default Elements */
+        header, footer, .stDeployButton, section[data-testid="stSidebarNav"] { 
+            display: none !important; 
+        }
+
+        /* === TYPOGRAPHY === */
+        h1, h2, h3, p, div {
+            text-align: center !important;
+            font-family: -apple-system, sans-serif;
+        }
+
+        .big-greeting {
+            font-size: 2.2rem;
+            font-weight: 300;
+            margin: 20px 0 10px 0;
+            background: linear-gradient(90deg, #d4a574, #f0e68c);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        /* Gold Color Utility Class */
+        .gold-text {
+            color: var(--accent) !important;
+        }
+
+        /* === INPUT FIELDS === */
+        .stTextInput > div > div {
+            background-color: var(--input-bg) !important;
+            border-radius: 25px !important;
+            border: 2px solid transparent !important;
+            padding: 0 10px !important;
         }
         
-        h1, h2, h3, h4, h5, h6 {
-            color: var(--accent-gold) !important;
+        .stTextInput input {
+            color: var(--input-text) !important;
+            background-color: transparent !important;
+            text-align: center !important;
+            font-weight: 500 !important;
+            caret-color: black !important;
+            padding: 10px 5px !important;
         }
         
-        /* Input fields */
-        .stTextInput > div > div > input {
-            background-color: var(--bg-tertiary) !important;
-            color: var(--text-primary) !important;
-            border: 2px solid var(--border-color) !important;
-            border-radius: 12px !important;
-            font-size: 16px !important;
-            padding: 14px 16px !important;
+        .stTextInput input::placeholder {
+            color: #444444 !important;
+            opacity: 1 !important;
         }
         
-        .stTextInput > div > div > input:focus {
-            border-color: var(--accent-amber) !important;
-            box-shadow: 0 0 20px rgba(212, 165, 116, 0.3) !important;
-        }
-        
-        .stTextInput > div > div > input::placeholder {
-            color: var(--text-muted) !important;
-        }
-        
-        /* Buttons */
-        .stButton > button {
-            background: linear-gradient(135deg, var(--accent-amber) 0%, var(--accent-copper) 100%) !important;
-            color: var(--bg-primary) !important;
-            border: none !important;
-            border-radius: 12px !important;
-            font-weight: 600 !important;
-            font-size: 1rem !important;
-            padding: 14px 28px !important;
-            min-height: 48px !important;
-            transition: all 0.3s ease !important;
-        }
-        
-        .stButton > button:hover {
-            transform: translateY(-2px) !important;
-            box-shadow: 0 0 25px rgba(244, 197, 66, 0.4) !important;
-        }
-        
-        /* Sidebar */
-        section[data-testid="stSidebar"] {
-            background-color: var(--bg-secondary) !important;
-        }
-        
-        section[data-testid="stSidebar"] * {
-            color: var(--text-primary) !important;
-        }
-        
-        /* === BEER CARD STYLES === */
-        .beer-card {
-            background: var(--bg-card);
-            border: 2px solid var(--border-color);
-            border-radius: 16px;
-            padding: 20px;
-            margin: 20px 0;
-            transition: all 0.3s ease;
-            backdrop-filter: blur(10px);
-        }
-        
-        .beer-card:hover {
-            border-color: var(--accent-amber);
-            box-shadow: 0 0 30px rgba(212, 165, 116, 0.2);
-            transform: translateY(-3px);
-        }
-        
-        .beer-image {
+        /* Gold Labels */
+        .stTextInput label {
+            color: var(--accent) !important;
+            text-align: center !important;
             width: 100%;
-            height: 200px;
-            object-fit: cover;
-            border-radius: 12px;
-            margin-bottom: 15px;
-            background-color: var(--bg-tertiary);
-            background-size: cover;
-            background-position: center;
-            border: 1px solid var(--border-color);
-        }
-        
-        .beer-image-placeholder {
-            width: 100%;
-            height: 200px;
-            border-radius: 12px;
-            margin-bottom: 15px;
-            background: linear-gradient(135deg, var(--accent-amber) 0%, var(--accent-copper) 100%);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 4rem;
-            color: white;
-            font-weight: bold;
-        }
-        
-        .beer-name {
-            font-size: 1.5rem !important;
-            font-weight: 700 !important;
-            color: var(--text-primary) !important;
-            margin-bottom: 5px;
-        }
-        
-        .beer-brand {
-            font-size: 1rem !important;
-            color: var(--accent-gold) !important;
-            margin-bottom: 15px;
-            font-weight: 500;
-        }
-        
-        .beer-stats {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 10px;
-            margin: 15px 0;
-        }
-        
-        .stat-item {
-            flex: 1;
-            min-width: 80px;
-            background: linear-gradient(135deg, rgba(42, 42, 42, 0.8), rgba(26, 26, 26, 0.8));
-            padding: 12px;
-            border-radius: 10px;
-            text-align: center;
-            border: 1px solid var(--border-color);
-        }
-        
-        .stat-label {
-            font-size: 0.75rem !important;
-            color: var(--text-muted) !important;
+            display: block;
+            margin-bottom: 8px;
+            font-size: 0.9rem !important;
             text-transform: uppercase;
             letter-spacing: 1px;
+            font-weight: 600 !important;
+        }
+
+        .stTextInput > div > div:focus-within {
+            border-color: var(--accent) !important;
+        }
+
+        /* === CHOICE BUTTONS === */
+        .choice-button {
+            width: 100%;
+            padding: 20px;
+            margin: 10px 0;
+            border-radius: 15px;
+            border: 2px solid var(--accent);
+            background: transparent;
+            color: var(--accent);
+            font-size: 1.1rem;
             font-weight: 600;
+            text-transform: uppercase;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-align: center;
         }
-        
-        .stat-value {
-            font-size: 1.2rem !important;
-            font-weight: 700 !important;
-            color: var(--accent-gold) !important;
-            margin-top: 4px;
+
+        .choice-button:hover {
+            background: var(--accent);
+            color: #000;
         }
-        
-        .beer-description {
-            font-size: 0.95rem !important;
-            color: var(--text-secondary) !important;
-            line-height: 1.6;
-            margin: 15px 0;
+
+        .choice-subtitle {
+            font-size: 0.8rem;
+            color: var(--text-sub);
+            margin-top: 5px;
+            text-transform: none;
+            font-weight: 400;
         }
-        
-        .beer-info {
-            background: linear-gradient(135deg, rgba(42, 42, 42, 0.6), rgba(26, 26, 26, 0.6));
-            padding: 15px;
-            border-radius: 10px;
-            margin: 15px 0;
-            border: 1px solid var(--border-color);
+
+        /* === BUTTONS (CENTERED) === */
+        .stButton {
+            display: flex !important;
+            justify-content: center !important;
+            width: 100% !important;
         }
-        
-        .info-item {
-            margin: 8px 0;
-            font-size: 0.9rem !important;
-            color: var(--text-secondary) !important;
-        }
-        
-        .info-label {
+
+        .stButton > button {
+            width: 100% !important;
+            border-radius: 25px !important;
+            padding: 12px 20px !important;
+            background: transparent !important;
+            color: var(--accent) !important;
+            border: 1px solid var(--accent) !important;
             font-weight: 600 !important;
-            color: var(--accent-amber) !important;
+            text-transform: uppercase;
+            margin-top: 10px;
+        }
+
+        .stButton > button:hover {
+            background: var(--accent) !important;
+            color: #000 !important;
         }
         
-        .stores-section {
-            margin-top: 15px;
-            padding: 15px;
-            background: linear-gradient(135deg, rgba(42, 42, 42, 0.6), rgba(26, 26, 26, 0.6));
+        /* Form Submit Button Centering */
+        div[data-testid="stFormSubmitButton"] {
+            display: flex !important;
+            justify-content: center !important;
+        }
+
+        div[data-testid="stFormSubmitButton"] > button {
+            background: var(--accent) !important;
+            color: #000 !important;
+            border: none !important;
+            width: 100% !important;
+        }
+
+        /* === CARDS & IMAGES === */
+        .beer-card {
+            background: var(--bg-card);
+            border-radius: 15px;
+            padding: 20px;
+            margin: 20px 0;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+        }
+
+        .beer-image {
+            width: 100%;
+            height: 180px;
+            object-fit: cover;
             border-radius: 10px;
-            border-left: 4px solid var(--accent-amber);
+            margin-bottom: 15px;
         }
+
+        .beer-title { font-size: 1.5rem; font-weight: 700; color: #fff; margin-bottom: 5px; }
+        .beer-brand { color: var(--accent); font-size: 0.9rem; text-transform: uppercase; margin-bottom: 15px; }
         
-        .stores-header {
-            font-weight: 600 !important;
-            color: var(--accent-gold) !important;
-            margin-bottom: 12px;
-            font-size: 0.95rem !important;
-        }
-        
-        .store-item {
+        .beer-metrics {
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+            margin: 15px 0;
             padding: 10px 0;
-            border-bottom: 1px solid var(--border-color);
+            border-top: 1px solid #333;
+            border-bottom: 1px solid #333;
         }
         
-        .store-item:last-child {
-            border-bottom: none;
-        }
-        
-        .store-name {
-            font-weight: 600 !important;
-            color: var(--text-primary) !important;
-            margin-bottom: 4px;
-        }
-        
-        .store-address {
-            font-size: 0.85rem !important;
-            color: var(--text-secondary) !important;
-        }
-        
-        /* === MOBILE RESPONSIVE === */
-        @media (max-width: 768px) {
-            .beer-card {
-                padding: 15px;
-                margin: 15px 0;
-            }
-            
-            .beer-name {
-                font-size: 1.25rem !important;
-            }
-            
-            .beer-image, .beer-image-placeholder {
-                height: 180px;
-            }
-            
-            .stat-item {
-                min-width: 70px;
-                padding: 10px;
-            }
-            
-            .stat-value {
-                font-size: 1rem !important;
-            }
-        }
-        
-        /* Toast messages */
-        .stToast {
-            background-color: var(--bg-card) !important;
-            color: var(--text-primary) !important;
+        .metric-value { font-size: 1.1rem; font-weight: bold; color: #fff; }
+        .metric-label { font-size: 0.7rem; color: #888; text-transform: uppercase; }
+
+        /* Footer */
+        .footer {
+            margin-top: 50px;
+            text-align: center;
+            font-size: 0.75rem;
+            color: var(--accent) !important;
+            padding: 20px 0;
+            border-top: 1px solid #333;
         }
     </style>
     """, unsafe_allow_html=True)
 
 # --- Helper Functions ---
 
-def google_custom_search(query, num=1):
-    """Perform Google Custom Search for beer images."""
-    if not GOOGLE_CSE_API_KEY or not GOOGLE_CSE_CX:
-        return None
+def render_logo():
+    """Render logo.png instead of emoji"""
+    logo_path = os.path.join(os.path.dirname(__file__), "static", "images", "logo.png")
+    if os.path.exists(logo_path):
+        with open(logo_path, "rb") as f:
+            data = f.read()
+            encoded = base64.b64encode(data).decode()
+        st.markdown(f"""
+            <div style="display: flex; justify-content: center; margin-bottom: 20px;">
+                <img src="data:image/png;base64,{encoded}" style="width: 120px; height: auto;">
+            </div>
+        """, unsafe_allow_html=True)
+    else:
+        st.markdown('<div style="font-size: 4rem;">🍺</div>', unsafe_allow_html=True)
+
+def render_footer():
+    st.markdown("""
+        <div class="footer">
+            © 2025 Dimension Unlimited. All rights reserved. Drink responsibly.
+        </div>
+    """, unsafe_allow_html=True)
+
+def get_greeting(zipcode):
+    """Simple Time Greeting"""
+    greeting = "Hello"
+    time_str = ""
     try:
-        params = {
-            'key': GOOGLE_CSE_API_KEY,
-            'cx': GOOGLE_CSE_CX,
-            'q': query,
-            'num': num,
-            'searchType': 'image',
-            'safe': 'active'
-        }
-        resp = requests.get('https://www.googleapis.com/customsearch/v1', params=params, timeout=10)
+        # Heuristic timezone offset
+        first_digit = int(str(zipcode)[0])
+        if first_digit in [0, 1, 2, 3]: offset = -5
+        elif first_digit in [4, 5, 6]: offset = -6
+        elif first_digit == 7: offset = -7
+        else: offset = -8
+            
+        utc_now = datetime.datetime.utcnow()
+        local_time = utc_now + timedelta(hours=offset)
+        hour = local_time.hour
+        
+        if 5 <= hour < 12: greeting = "Good Morning"
+        elif 12 <= hour < 17: greeting = "Good Afternoon"
+        elif 17 <= hour < 22: greeting = "Good Evening"
+        else: greeting = "Hey Night Owl"
+        
+        time_str = local_time.strftime("%I:%M %p")
+    except:
+        pass
+
+    return greeting, time_str
+
+def google_custom_search(query, num=1):
+    if not GOOGLE_CSE_API_KEY or not GOOGLE_CSE_CX: return None
+    try:
+        params = {'key': GOOGLE_CSE_API_KEY, 'cx': GOOGLE_CSE_CX, 'q': query, 'num': num, 'searchType': 'image'}
+        resp = requests.get('https://www.googleapis.com/customsearch/v1', params=params, timeout=5)
         if resp.status_code == 200:
             items = resp.json().get('items', [])
-            if items:
-                return items[0].get('link')
-    except Exception as e:
-        print(f"Image search error: {e}")
+            if items: return items[0].get('link')
+    except: pass
     return None
 
 def ensure_beer_image(beer):
-    """Add image URL to beer if missing"""
     if not beer.get('image'):
         query = f"{beer.get('name', '')} {beer.get('brand', '')} beer bottle"
         image_url = google_custom_search(query)
-        if image_url:
-            beer['image'] = image_url
+        if image_url: beer['image'] = image_url
     return beer
 
-def get_ai_recommendations(query, zipcode, mode='angel'):
-    """Get beer recommendations from Gemini based on selected mode."""
-    if not processing_model:
-        st.error("⚠️ Gemini API not configured. Please set GEMINI_API_KEY.")
-        return []
+def get_ai_recommendations(zipcode, mood, day_context, taste_pref):
+    if not processing_model: return []
+    
+    # Trim inputs to 35 chars
+    s_zip = str(zipcode)[:5]
+    s_mood = str(mood)[:35]
+    s_day = str(day_context)[:35]
+    s_taste = str(taste_pref)[:35]
 
-    # Mode-specific prompts
-    mode_prompts = {
-        'angel': """You specialize in HEALTHY, LOW-CALORIE beer options. Focus on:
-- Beers under 100 calories when possible
-- Low carb options (under 5g carbs)
-- Light lagers, session IPAs, and "skinny" beers
-- Gluten-free or gluten-reduced options if relevant""",
-        
-        'devil': """You specialize in RICH, INDULGENT, FULL-FLAVORED beers. Focus on:
-- Bold, flavorful craft beers with complex profiles
-- Stouts, porters, Belgian ales, barrel-aged beers
-- High ABV options with rich taste
-- Award-winning and highly-rated beers""",
-        
-        'random': """You recommend a MIX of interesting and unique beers. Focus on:
-- A variety of styles from light to bold
-- Unique or unusual beers the user might not know
-- Mix of healthy options and indulgent choices
-- Surprise picks that are highly rated"""
-    }
-
-    prompt = f"""{mode_prompts.get(mode, mode_prompts['angel'])}
-
-User query: "{query}"
-Target zipcode: {zipcode}
-
-Return ONLY a valid JSON array (no markdown, no code blocks, no extra text) of exactly 3 beer objects.
-Each object must have these exact fields:
-- "name": string (beer name)
-- "brand": string (brewery name)  
-- "calories": string (e.g., "95 cal")
-- "carbs": string (e.g., "2.6g")
-- "abv": string (e.g., "4.2%")
-- "description": string (2-3 sentences)
-- "price_range": string (e.g., "$8-12 per 6-pack")
-- "where_to_buy": string (general availability)
-- "stores": array of objects, each with "name", "address", "distance"
-
-IMPORTANT: Return ONLY the JSON array, nothing else."""
-
+    prompt = f"""
+    Act as a beer sommelier. Suggest 3 beers based on:
+    Zip: {s_zip}, Mood: {s_mood}, Day: {s_day}, Taste: {s_taste}.
+    
+    Return ONLY a valid JSON array of 3 objects:
+    [{{"name": "", "brand": "", "calories": "", "abv": "", "description": "short & punchy", "price_range": "", "where_to_buy": "stores"}}]
+    """
+    
     try:
         response = processing_model.generate_content(prompt)
         text = response.text.strip()
-        
-        # Clean up response - remove markdown code blocks
-        if "```json" in text:
-            text = text.split("```json")[1].split("```")[0].strip()
-        elif "```" in text:
-            parts = text.split("```")
-            if len(parts) >= 2:
-                text = parts[1].strip()
-        
-        # Remove any leading/trailing whitespace or newlines
-        text = text.strip()
-        
-        # Parse JSON
+        if "```" in text: text = text.split("```")[1].replace("json", "").strip()
         beers = json.loads(text)
-        
-        # Ensure each beer has an image
-        for beer in beers:
-            ensure_beer_image(beer)
-            
+        for beer in beers: ensure_beer_image(beer)
         return beers
-        
-    except json.JSONDecodeError as e:
-        st.error(f"❌ Failed to parse AI response as JSON")
-        with st.expander("Debug: Raw Response"):
-            st.code(text if 'text' in dir() else "No response text")
-        return []
-    except Exception as e:
-        st.error(f"❌ AI Error: {str(e)}")
-        return []
+    except: return []
 
 def render_beer_card_html(beer):
-    """Generate complete HTML for a beer card - MUST BE SINGLE LINE for st.markdown."""
-    
-    # Handle image
-    if beer.get('image'):
-        image_html = f'<img src="{beer["image"]}" class="beer-image" alt="{beer.get("name", "Beer")}" onerror="this.style.display=\'none\'">'
-    else:
-        initial = beer.get('name', 'B')[0].upper()
-        image_html = f'<div class="beer-image-placeholder">{initial}</div>'
-    
-    # Stats
-    stats_items = []
-    if beer.get('calories'):
-        stats_items.append(f'<div class="stat-item"><div class="stat-label">Calories</div><div class="stat-value">{beer["calories"]}</div></div>')
-    if beer.get('carbs'):
-        stats_items.append(f'<div class="stat-item"><div class="stat-label">Carbs</div><div class="stat-value">{beer["carbs"]}</div></div>')
-    if beer.get('abv'):
-        stats_items.append(f'<div class="stat-item"><div class="stat-label">ABV</div><div class="stat-value">{beer["abv"]}</div></div>')
-    stats_html = ''.join(stats_items)
-    
-    # Info section
-    info_items = []
-    if beer.get('price_range'):
-        info_items.append(f'<div class="info-item"><span class="info-label">Price:</span> {beer["price_range"]}</div>')
-    if beer.get('where_to_buy'):
-        info_items.append(f'<div class="info-item"><span class="info-label">Where to Buy:</span> {beer["where_to_buy"]}</div>')
-    info_html = ''.join(info_items)
-    
-    # Stores section
-    stores_html = ""
-    if beer.get('stores') and len(beer['stores']) > 0:
-        store_items = []
-        for store in beer['stores'][:3]:
-            store_name = store.get('name', 'N/A')
-            store_addr = store.get('address', '')
-            store_dist = store.get('distance', '')
-            addr_text = f" - {store_addr}" if store_addr else ""
-            dist_text = f" ({store_dist})" if store_dist else ""
-            store_items.append(f'<div class="store-item"><div class="store-name">{store_name}</div><div class="store-address">📍{addr_text}{dist_text}</div></div>')
-        stores_html = f'<div class="stores-section"><div class="stores-header">📍 Available Nearby:</div>{"".join(store_items)}</div>'
-    
-    # Build complete card - ALL ON ONE LINE to prevent Streamlit from breaking it
-    card_html = f'<div class="beer-card">{image_html}<div class="beer-name">{beer.get("name", "Unknown Beer")}</div><div class="beer-brand">{beer.get("brand", "Craft Beer")}</div><div class="beer-stats">{stats_html}</div><div class="beer-description">{beer.get("description", "")}</div><div class="beer-info">{info_html}</div>{stores_html}</div>'
-    
-    return card_html
-
-# --- Session State ---
-if 'authenticated' not in st.session_state:
-    st.session_state.authenticated = False
-if 'login_step' not in st.session_state:
-    st.session_state.login_step = 'email'
-if 'email' not in st.session_state:
-    st.session_state.email = ''
-if 'expected_code' not in st.session_state:
-    st.session_state.expected_code = ''
-if 'zipcode' not in st.session_state:
-    st.session_state.zipcode = '90049'
-if 'selected_beers' not in st.session_state:
-    st.session_state.selected_beers = []
-if 'search_results' not in st.session_state:
-    st.session_state.search_results = []
-if 'current_page' not in st.session_state:
-    st.session_state.current_page = 'search'
-if 'beer_mode' not in st.session_state:
-    st.session_state.beer_mode = None
-
-# --- Pages ---
-
-def login_screen():
-    inject_custom_css()
-    
-    # Centered container for logo and title
-    st.markdown("""
-    <style>
-    .login-header {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 20px;
-        margin-bottom: 30px;
-        padding: 20px 0;
-    }
-    .login-logo img {
-        border-radius: 50%;
-        border: 3px solid var(--accent-amber);
-        box-shadow: 0 0 20px rgba(212, 165, 116, 0.4);
-    }
-    .login-title {
-        font-size: 2.5rem;
-        font-weight: 700;
-        color: var(--accent-gold);
-        margin: 0;
-    }
-    .login-form {
-        max-width: 400px;
-        margin: 0 auto;
-    }
-    .privacy-note {
-        font-size: 0.75rem;
-        color: var(--text-muted);
-        font-style: italic;
-        margin-top: 5px;
-        text-align: center;
-    }
-    </style>
-    """, unsafe_allow_html=True)
-    
-    # Logo and Title side by side
-    logo_path = os.path.join(os.path.dirname(__file__), "static", "images", "logo.png")
-    
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
-        logo_col, title_col = st.columns([1, 2])
-        with logo_col:
-            if os.path.exists(logo_path):
-                st.image(logo_path, width=80)
-        with title_col:
-            st.markdown('<h1 class="login-title">Beer Finder</h1>', unsafe_allow_html=True)
-    
-    st.markdown("---")
-    
-    # Centered form container
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
-        if st.session_state.login_step == 'email':
-            st.markdown("**Enter your email address**")
-            email = st.text_input("", placeholder="your@email.com", label_visibility="collapsed")
-            st.markdown('<p class="privacy-note">(your email address will not be used for marketing purposes)</p>', unsafe_allow_html=True)
-            
-            if st.button("Send Code", type="primary", use_container_width=True):
-                if '@' in email and '.' in email:
-                    code = str(random.randint(100000, 999999))
-                    st.session_state.email = email
-                    st.session_state.expected_code = code
-                    st.success(f"🔐 Demo Mode - Your code: **{code}**")
-                    st.session_state.login_step = 'code'
-                    st.rerun()
-                else:
-                    st.error("Please enter a valid email address.")
-                    
-        elif st.session_state.login_step == 'code':
-            st.info(f"📬 Code sent to: **{st.session_state.email}**")
-            
-            code_input = st.text_input("🔢 Enter 6-digit Code", value=st.session_state.expected_code, max_chars=6)
-            zip_input = st.text_input("📍 Your Zipcode", value=st.session_state.zipcode)
-            
-            btn_col1, btn_col2 = st.columns(2)
-            with btn_col1:
-                if st.button("✅ Verify", type="primary", use_container_width=True):
-                    if code_input == st.session_state.expected_code:
-                        st.session_state.authenticated = True
-                        st.session_state.zipcode = zip_input
-                        st.rerun()
-                    else:
-                        st.error("Invalid code.")
-            with btn_col2:
-                if st.button("⬅️ Back", use_container_width=True):
-                    st.session_state.login_step = 'email'
-                    st.rerun()
-
-def main_app():
-    inject_custom_css()
-    
-    # Initialize page state
-    if 'current_page' not in st.session_state:
-        st.session_state.current_page = 'search'
-    
-    # TOP NAVIGATION BAR - User info only
-    saved_count = len(st.session_state.selected_beers)
-    
-    # Show user info and My List button only if there are saved beers
-    if saved_count > 0:
-        col1, col2 = st.columns([4, 1])
-        with col1:
-            st.markdown(f"""
-            <div style="color: var(--accent-gold); font-weight: 600; padding: 10px 0;">
-                👋 {st.session_state.email.split('@')[0]} | 📍 {st.session_state.zipcode}
-            </div>
-            """, unsafe_allow_html=True)
-        with col2:
-            if st.button(f"📋 My List ({saved_count})", use_container_width=True, type="primary"):
-                st.session_state.current_page = 'selected'
-                st.rerun()
-        st.markdown("---")
-    else:
-        # Just show user info - no buttons
-        st.markdown(f"""
-        <div style="padding: 10px 0; margin-bottom: 10px; border-bottom: 2px solid rgba(212, 165, 116, 0.2);">
-            <div style="color: var(--accent-gold); font-weight: 600;">👋 {st.session_state.email.split('@')[0]} | 📍 {st.session_state.zipcode}</div>
+    img = f'<img src="{beer.get("image")}" class="beer-image">' if beer.get("image") else ""
+    return f"""
+    <div class="beer-card">
+        {img}
+        <div class="beer-title">{beer.get("name", "Unknown")}</div>
+        <div class="beer-brand">{beer.get("brand", "Craft Beer")}</div>
+        <div class="beer-metrics">
+            <div><div class="metric-value">{beer.get("abv", "?")}</div><div class="metric-label">ABV</div></div>
+            <div><div class="metric-value">{beer.get("calories", "?")}</div><div class="metric-label">Cals</div></div>
+            <div><div class="metric-value">{beer.get("price_range", "$")}</div><div class="metric-label">Price</div></div>
         </div>
-        """, unsafe_allow_html=True)
-    
-    # Logout button in sidebar (accessible but not prominent)
-    with st.sidebar:
-        st.markdown(f"### 👋 Welcome!")
-        st.markdown(f"**{st.session_state.email.split('@')[0]}**")
-        st.markdown(f"📍 Zipcode: {st.session_state.zipcode}")
-        st.markdown("---")
-        st.markdown(f"**Saved Beers:** {saved_count}")
-        st.markdown("---")
-        if st.button("🚪 Logout", use_container_width=True):
-            for key in list(st.session_state.keys()):
-                del st.session_state[key]
-            st.rerun()
-    
-    # Page content based on current_page state
-    if st.session_state.current_page == 'search':
-        search_page()
-    elif st.session_state.current_page == 'selected':
-        selected_page()
-
-def search_page():
-    st.title("🔍 Find Your Perfect Beer")
-    
-    # MODE SELECTION
-    st.markdown("### Choose Your Beer Adventure")
-    st.markdown("Select your beer discovery style:")
-    
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        if st.button("😇 Angel's Choice\n\n*Light & virtuous*\n\nLow-calorie, healthy options", 
-                     key="angel_mode", 
-                     use_container_width=True,
-                     type="primary" if st.session_state.beer_mode == 'angel' else "secondary"):
-            st.session_state.beer_mode = 'angel'
-            st.rerun()
-    
-    with col2:
-        if st.button("😈 Devil's Delight\n\n*Sinfully delicious*\n\nRich, bold, indulgent", 
-                     key="devil_mode", 
-                     use_container_width=True,
-                     type="primary" if st.session_state.beer_mode == 'devil' else "secondary"):
-            st.session_state.beer_mode = 'devil'
-            st.rerun()
-    
-    with col3:
-        if st.button("🎲 Flip a Coin\n\n*Feeling lucky?*\n\nSurprising mix", 
-                     key="random_mode", 
-                     use_container_width=True,
-                     type="primary" if st.session_state.beer_mode == 'random' else "secondary"):
-            st.session_state.beer_mode = 'random'
-            st.rerun()
-    
-    # Show selected mode
-    if st.session_state.beer_mode:
-        mode_names = {'angel': '😇 Angel\'s Choice', 'devil': '😈 Devil\'s Delight', 'random': '🎲 Flip a Coin'}
-        st.success(f"Selected: {mode_names[st.session_state.beer_mode]}")
-    
-    st.markdown("---")
-    
-    # SEARCH INPUT (only show if mode is selected)
-    if st.session_state.beer_mode:
-        # Dynamic placeholder based on mode
-        placeholders = {
-        'angel': "e.g., low calorie IPA, light lager, gluten-free options",
-        'devil': "e.g., bourbon barrel-aged stout, triple IPA, Belgian quad",
-        'random': "e.g., something unique, surprise me, local craft favorites"
-        }
-        placeholder_text = placeholders.get(st.session_state.beer_mode, "What kind of beer are you craving?")
-
-        query = st.text_input("What are you looking for?", placeholder=placeholder_text)
-        if st.button("🍺 Search", type="primary", use_container_width=True):
-            if not query:
-                st.warning("Please enter a search term.")
-            elif not processing_model:
-                st.error("⚠️ Gemini API not configured. Add GEMINI_API_KEY to Secrets.")
-            else:
-                with st.spinner("🔍 Finding the best beers for you..."):
-                    # Pass the selected mode to the function
-                    results = get_ai_recommendations(query, st.session_state.zipcode, mode=st.session_state.beer_mode)
-                    st.session_state.search_results = results
-    else:
-        st.info("👆 Please select a beer discovery mode above to continue")
-    
-    # Display Results (THIS WAS MISSING!)
-    if st.session_state.search_results:
-        st.markdown("---")
-        st.subheader(f"🍺 Found {len(st.session_state.search_results)} recommendations")
-        
-        for i, beer in enumerate(st.session_state.search_results):
-            # Render the HTML card
-            st.markdown(render_beer_card_html(beer), unsafe_allow_html=True)
-            
-            # Save button (Streamlit native)
-            if st.button(f"💾 Save to My List", key=f"save_{i}"):
-                if not any(b.get('name') == beer.get('name') for b in st.session_state.selected_beers):
-                    st.session_state.selected_beers.append(beer)
-                    st.toast(f"✅ Saved {beer.get('name')}!")
-                    st.rerun()  # Rerun to update the My List button
-                else:
-                    st.toast("Already in your list!")
-
-def selected_page():
-    # Back button at the top
-    if st.button("⬅️ Back to Search", use_container_width=False):
-        st.session_state.current_page = 'search'
-        st.rerun()
-    
-    st.title("📋 Your Selected Beers")
-    
-    if not st.session_state.selected_beers:
-        st.info("🍺 No beers saved yet. Go search for some!")
-        if st.button("🔍 Start Searching", type="primary", use_container_width=True):
-            st.session_state.current_page = 'search'
-            st.rerun()
-        return
-    
-    st.markdown(f"**{len(st.session_state.selected_beers)} beer(s) saved**")
-    st.markdown("---")
-    
-    for i, beer in enumerate(st.session_state.selected_beers):
-        st.markdown(render_beer_card_html(beer), unsafe_allow_html=True)
-        
-        if st.button(f"🗑️ Remove", key=f"remove_{i}"):
-            st.session_state.selected_beers = [b for b in st.session_state.selected_beers if b.get('name') != beer.get('name')]
-            st.rerun()
-
-def render_footer():
-    """Render the footer on all pages."""
-    st.markdown("""
-    <div style="margin-top: 50px; padding: 20px 0; border-top: 2px solid rgba(212, 165, 116, 0.2); text-align: center;">
-        <p style="color: var(--text-muted); font-size: 0.85rem; margin: 0;">© 2025 Dimension Unlimited. All rights reserved. Drink responsibly.</p>
+        <div style="color: #ccc; font-size: 0.9rem; line-height: 1.4; margin-bottom: 10px;">{beer.get("description", "")}</div>
+        <div style="color: #d4a574; font-size: 0.8rem;">📍 {beer.get("where_to_buy", "Check Local Stores")}</div>
     </div>
-    """, unsafe_allow_html=True)
+    """.replace('\n', '')
 
-# --- Main ---
+# --- Session & Routing ---
+if 'step' not in st.session_state: st.session_state.step = 0
+if 'user_data' not in st.session_state: 
+    st.session_state.user_data = {
+        'name': 'Sats', 
+        'zipcode': '', 
+        'mood': '', 
+        'brand_query': None,
+        'day': '', 
+        'taste': '',
+        'search_type': None  # Track which path user chose
+    }
+if 'rec_beers' not in st.session_state: st.session_state.rec_beers = []
+if 'saved_beers' not in st.session_state: st.session_state.saved_beers = []
+
+def main():
+    inject_mobile_css()
+    
+    # Header Nav
+    if st.session_state.step > 0:
+        c1, c2, c3 = st.columns([1, 2, 1])
+        with c1:
+            if st.button("←"):
+                # Smart back navigation
+                if st.session_state.step == 3:
+                    st.session_state.step = 1
+                    st.session_state.rec_beers = []
+                    st.session_state.user_data['brand_query'] = None
+                    st.session_state.user_data['mood'] = ''
+                    st.session_state.user_data['search_type'] = None
+                    st.rerun()
+                elif st.session_state.step == 2 and st.session_state.user_data.get('search_type') == 'brand':
+                    # If came from brand path, go back to step 1
+                    st.session_state.step = 1
+                    st.session_state.user_data['brand_query'] = None
+                    st.session_state.user_data['search_type'] = None
+                    st.rerun()
+                else:
+                    st.session_state.step = max(0, st.session_state.step - 1)
+                    st.rerun()
+        with c3:
+            if st.session_state.saved_beers and st.session_state.step != 4:
+                if st.button("★"):
+                    st.session_state.step = 4
+                    st.rerun()
+
+    # Step 0: Welcome / Name / Zip
+    if st.session_state.step == 0:
+        st.markdown('<div style="height: 60px;"></div>', unsafe_allow_html=True)
+        render_logo()
+        st.markdown('<h1 class="big-greeting">Beer Finder</h1>', unsafe_allow_html=True)
+        st.markdown('<p class="gold-text">Your pocket sommelier.</p>', unsafe_allow_html=True)
+        st.markdown('<div style="height: 30px;"></div>', unsafe_allow_html=True)
+        
+        name_val = st.text_input("YOUR NAME", value="Sats", placeholder="Enter your name", max_chars=35)
+        zip_val = st.text_input("ZIP CODE", placeholder="e.g. 90210", max_chars=5)
+        
+        if st.button("ENTER"):
+            if len(zip_val) == 5:
+                st.session_state.user_data['name'] = name_val[:35]
+                st.session_state.user_data['zipcode'] = zip_val
+                st.session_state.step = 1
+                st.rerun()
+            else:
+                st.error("Please enter a valid 5-digit zip.")
+        
+        render_footer()
+
+    # Step 1: Choose Search Type (NEW APPROACH)
+    elif st.session_state.step == 1:
+        greet, time = get_greeting(st.session_state.user_data['zipcode'])
+        name = st.session_state.user_data.get('name', 'Friend')
+        
+        # Display Beer Pour GIF
+        gif_path = os.path.join(os.path.dirname(__file__), "static", "images", "beer.gif.gif")
+        if os.path.exists(gif_path):
+            with open(gif_path, "rb") as f:
+                data = f.read()
+                encoded = base64.b64encode(data).decode()
+            st.markdown(f"""
+                <div style="display: flex; justify-content: center; margin-bottom: 20px;">
+                    <img src="data:image/gif;base64,{encoded}" 
+                         style="width: 100%; max-height: 250px; object-fit: cover; border-radius: 15px; opacity: 0.8;">
+                </div>
+            """, unsafe_allow_html=True)
+        else:
+             st.markdown('<div style="display: flex; justify-content: center; margin-bottom: 20px;"><div style="font-size: 5rem;">🍺</div></div>', unsafe_allow_html=True)
+        
+        welcome_msg = f"{greet}, {name}."
+        
+        st.markdown(f'<div class="big-greeting">{welcome_msg}</div>', unsafe_allow_html=True)
+        if time:
+            st.markdown(f'<p class="gold-text">It is currently {time}</p>', unsafe_allow_html=True)
+        
+        st.markdown('<div style="height: 30px;"></div>', unsafe_allow_html=True)
+        st.markdown('<p class="gold-text" style="font-size: 1.1rem; margin-bottom: 20px;">How would you like to search?</p>', unsafe_allow_html=True)
+        
+        # Two clear button choices
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            if st.button("🎭 BY MOOD", key="mood_btn", use_container_width=True):
+                st.session_state.user_data['search_type'] = 'mood'
+                st.session_state.step = 1.5  # Intermediate step for mood input
+                st.rerun()
+        
+        with col2:
+            if st.button("🍺 SPECIFIC BEER", key="brand_btn", use_container_width=True):
+                st.session_state.user_data['search_type'] = 'brand'
+                st.session_state.step = 1.5  # Intermediate step for brand input
+                st.rerun()
+        
+        render_footer()
+
+    # Step 1.5: Input based on choice
+    elif st.session_state.step == 1.5:
+        greet, time = get_greeting(st.session_state.user_data['zipcode'])
+        name = st.session_state.user_data.get('name', 'Friend')
+        
+        st.markdown(f'<div class="big-greeting">{greet}, {name}.</div>', unsafe_allow_html=True)
+        
+        search_type = st.session_state.user_data.get('search_type')
+        
+        if search_type == 'mood':
+            st.markdown('<div style="height: 20px;"></div>', unsafe_allow_html=True)
+            with st.form("mood_form"):
+                mood = st.text_input("HOW IS YOUR MOOD?", placeholder="Relaxed, Hyped, Tired...", max_chars=35)
+                
+                if st.form_submit_button("NEXT"):
+                    if mood:
+                        st.session_state.user_data['mood'] = mood
+                        st.session_state.user_data['brand_query'] = None
+                        st.session_state.step = 2
+                        st.rerun()
+        
+        elif search_type == 'brand':
+            st.markdown('<div style="height: 20px;"></div>', unsafe_allow_html=True)
+            with st.form("brand_form"):
+                brand_query = st.text_input("ENTER YOUR BEER OF CHOICE", placeholder="Guinness, West Coast IPA...", max_chars=35)
+                
+                if st.form_submit_button("FIND IT"):
+                    if brand_query:
+                        st.session_state.user_data['brand_query'] = brand_query
+                        st.session_state.user_data['mood'] = None
+                        st.session_state.step = 2
+                        st.rerun()
+        
+        render_footer()
+
+    # Step 2: Context or Direct Search
+    elif st.session_state.step == 2:
+        if st.session_state.user_data.get('brand_query'):
+             # Auto-search for specific brand
+             brand = st.session_state.user_data.get('brand_query')
+             st.session_state.user_data.update({'day': 'Specific Brand Search', 'taste': 'Specific Brand Search'})
+             
+             search_prompt = f"""
+             Act as a beer sommelier. The user is looking specifically for "{brand}" or very similar beers available near zipcode {st.session_state.user_data['zipcode']}.
+             Return 3 relevant options (the specific beer if available, or closest matches).
+             
+             Return ONLY a valid JSON array of 3 objects:
+             [{{"name": "", "brand": "", "calories": "", "abv": "", "description": "short & punchy", "price_range": "", "where_to_buy": "stores"}}]
+             """
+             
+             with st.spinner(f"Finding {brand}..."):
+                try:
+                    response = processing_model.generate_content(search_prompt)
+                    text = response.text.strip()
+                    if "```" in text: text = text.split("```")[1].replace("json", "").strip()
+                    beers = json.loads(text)
+                    for beer in beers: ensure_beer_image(beer)
+                    st.session_state.rec_beers = beers
+                except:
+                    st.session_state.rec_beers = []
+                    
+                st.session_state.step = 3
+                st.rerun()
+        else:
+            # Mood path - ask for context
+            st.markdown('<h3 class="gold-text">Tell me more...</h3>', unsafe_allow_html=True)
+            with st.form("context"):
+                day = st.text_input("HOW WAS YOUR DAY?", placeholder="Long work day, celebrating...", max_chars=35)
+                taste = st.text_input("TASTE PREFERENCE?", placeholder="Hoppy, Sweet, Dark, Surprise me...", max_chars=35)
+                
+                if st.form_submit_button("FIND MY BEER"):
+                    st.session_state.user_data.update({'day': day[:35], 'taste': taste[:35]})
+                    with st.spinner("Pouring recommendations..."):
+                        st.session_state.rec_beers = get_ai_recommendations(
+                            st.session_state.user_data['zipcode'],
+                            st.session_state.user_data['mood'],
+                            day[:35],
+                            taste[:35]
+                        )
+                        st.session_state.step = 3
+                        st.rerun()
+            
+            render_footer()
+
+    # Step 3: Results
+    elif st.session_state.step == 3:
+        st.markdown('<h3 class="gold-text">Top Picks For You</h3>', unsafe_allow_html=True)
+        
+        if not st.session_state.rec_beers:
+            st.error("Nothing found. Try again.")
+            if st.button("RETRY"): 
+                st.session_state.step = 1
+                st.session_state.user_data['search_type'] = None
+                st.rerun()
+            
+        for beer in st.session_state.rec_beers:
+            st.markdown(render_beer_card_html(beer), unsafe_allow_html=True)
+            saved = any(b['name'] == beer['name'] for b in st.session_state.saved_beers)
+            if not saved:
+                if st.button(f"SAVE", key=beer['name']):
+                    st.session_state.saved_beers.append(beer)
+                    st.rerun()
+            else:
+                st.button("SAVED ✓", disabled=True, key=beer['name'])
+        
+        render_footer()
+
+    # Step 4: Saved
+    elif st.session_state.step == 4:
+        st.markdown('<h3 class="gold-text">Your Saved Brews</h3>', unsafe_allow_html=True)
+        for i, beer in enumerate(st.session_state.saved_beers):
+            st.markdown(render_beer_card_html(beer), unsafe_allow_html=True)
+            if st.button("REMOVE", key=f"rem_{i}"):
+                st.session_state.saved_beers.pop(i)
+                st.rerun()
+        
+        render_footer()
+
 if __name__ == "__main__":
-    if st.session_state.authenticated:
-        main_app()
-        render_footer()
-    else:
-        login_screen()
-        render_footer()
+    main()
