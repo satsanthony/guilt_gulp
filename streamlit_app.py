@@ -41,16 +41,39 @@ GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
 GOOGLE_CSE_API_KEY = os.getenv('GOOGLE_CSE_API_KEY')
 GOOGLE_CSE_CX = os.getenv('GOOGLE_CSE_CX')
 
-# Configure Gemini
+# Configure Gemini with better error handling
 processing_model = None
+gemini_error = None
 
-if GENAI_AVAILABLE and GEMINI_API_KEY:
+if not GENAI_AVAILABLE:
+    gemini_error = "google-generativeai package not installed"
+elif not GEMINI_API_KEY:
+    gemini_error = "GEMINI_API_KEY not found in environment variables"
+else:
     try:
         genai.configure(api_key=GEMINI_API_KEY)
-        # Text/Reasoning Model
-        processing_model = genai.GenerativeModel('gemini-3-pro-preview') 
+        # Try multiple model options in order of preference
+        model_options = [
+            'gemini-3-pro-preview',
+            'gemini-2.5-pro'
+            'gemini-1.5-pro-latest'
+        ]
+        
+        for model_name in model_options:
+            try:
+                processing_model = genai.GenerativeModel(model_name)
+                # Test the model with a simple request
+                test_response = processing_model.generate_content("Say 'OK'")
+                if test_response and test_response.text:
+                    break  # Model works, exit loop
+            except Exception as model_error:
+                continue
+        
+        if not processing_model:
+            gemini_error = "Could not initialize any Gemini model"
+            
     except Exception as e:
-        st.error(f"Failed to configure Gemini: {e}")
+        gemini_error = f"Failed to configure Gemini: {str(e)}"
 
 # --- MOBILE STYLED CSS ---
 def inject_mobile_css():
@@ -252,6 +275,17 @@ def inject_mobile_css():
             padding: 20px 0;
             border-top: 1px solid #333;
         }
+
+        /* Debug Panel */
+        .debug-panel {
+            background: #1a1a1a;
+            border: 1px solid #333;
+            border-radius: 10px;
+            padding: 15px;
+            margin: 20px 0;
+            font-size: 0.85rem;
+            color: #888;
+        }
     </style>
     """, unsafe_allow_html=True)
 
@@ -278,6 +312,23 @@ def render_footer():
             © 2025 Dimension Unlimited. All rights reserved. Drink responsibly.
         </div>
     """, unsafe_allow_html=True)
+
+def render_debug_panel():
+    """Show debug information - remove this in production"""
+    if st.session_state.get('show_debug', False):
+        debug_info = f"""
+        <div class="debug-panel">
+            <strong>🔧 Debug Info:</strong><br>
+            • Gemini Available: {GENAI_AVAILABLE}<br>
+            • API Key Set: {'Yes' if GEMINI_API_KEY else 'No'}<br>
+            • Model Initialized: {'Yes' if processing_model else 'No'}<br>
+            • Error: {gemini_error or 'None'}<br>
+            • Step: {st.session_state.step}<br>
+            • Search Type: {st.session_state.user_data.get('search_type', 'None')}<br>
+            • Recommendations: {len(st.session_state.rec_beers)}<br>
+        </div>
+        """
+        st.markdown(debug_info, unsafe_allow_html=True)
 
 def get_greeting(zipcode):
     """Simple Time Greeting"""
@@ -307,25 +358,39 @@ def get_greeting(zipcode):
     return greeting, time_str
 
 def google_custom_search(query, num=1):
-    if not GOOGLE_CSE_API_KEY or not GOOGLE_CSE_CX: return None
+    if not GOOGLE_CSE_API_KEY or not GOOGLE_CSE_CX: 
+        return None
     try:
-        params = {'key': GOOGLE_CSE_API_KEY, 'cx': GOOGLE_CSE_CX, 'q': query, 'num': num, 'searchType': 'image'}
+        params = {
+            'key': GOOGLE_CSE_API_KEY, 
+            'cx': GOOGLE_CSE_CX, 
+            'q': query, 
+            'num': num, 
+            'searchType': 'image'
+        }
         resp = requests.get('https://www.googleapis.com/customsearch/v1', params=params, timeout=5)
         if resp.status_code == 200:
             items = resp.json().get('items', [])
-            if items: return items[0].get('link')
-    except: pass
+            if items: 
+                return items[0].get('link')
+    except Exception as e:
+        print(f"Image search error: {e}")
     return None
 
 def ensure_beer_image(beer):
     if not beer.get('image'):
         query = f"{beer.get('name', '')} {beer.get('brand', '')} beer bottle"
         image_url = google_custom_search(query)
-        if image_url: beer['image'] = image_url
+        if image_url: 
+            beer['image'] = image_url
     return beer
 
 def get_ai_recommendations(zipcode, mood, day_context, taste_pref):
-    if not processing_model: return []
+    """Get AI recommendations with detailed error handling"""
+    
+    if not processing_model:
+        st.error(f"⚠️ AI model not available: {gemini_error}")
+        return []
     
     # Trim inputs to 35 chars
     s_zip = str(zipcode)[:5]
@@ -333,22 +398,109 @@ def get_ai_recommendations(zipcode, mood, day_context, taste_pref):
     s_day = str(day_context)[:35]
     s_taste = str(taste_pref)[:35]
 
-    prompt = f"""
-    Act as a beer sommelier. Suggest 3 beers based on:
-    Zip: {s_zip}, Mood: {s_mood}, Day: {s_day}, Taste: {s_taste}.
-    
-    Return ONLY a valid JSON array of 3 objects:
-    [{{"name": "", "brand": "", "calories": "", "abv": "", "description": "short & punchy", "price_range": "", "where_to_buy": "stores"}}]
-    """
+    prompt = f"""Act as a beer sommelier. Suggest 3 beers based on:
+Zip: {s_zip}, Mood: {s_mood}, Day: {s_day}, Taste: {s_taste}.
+
+Return ONLY a valid JSON array of 3 objects with this exact format:
+[{{"name": "Beer Name", "brand": "Brand Name", "calories": "150", "abv": "5.5%", "description": "A crisp and refreshing beer perfect for relaxing", "price_range": "$$", "where_to_buy": "Total Wine, BevMo"}}]
+
+Do not include any markdown formatting, code blocks, or explanations. Just the JSON array."""
     
     try:
         response = processing_model.generate_content(prompt)
+        
+        if not response or not response.text:
+            st.error("⚠️ API returned empty response")
+            return []
+        
         text = response.text.strip()
-        if "```" in text: text = text.split("```")[1].replace("json", "").strip()
+        
+        # Clean up markdown code blocks if present
+        if "```json" in text:
+            text = text.split("```json")[1].split("```")[0].strip()
+        elif "```" in text:
+            text = text.split("```")[1].split("```")[0].strip()
+        
+        # Try to parse JSON
         beers = json.loads(text)
-        for beer in beers: ensure_beer_image(beer)
+        
+        # Validate structure
+        if not isinstance(beers, list):
+            st.error("⚠️ API returned invalid format (not a list)")
+            return []
+        
+        if len(beers) == 0:
+            st.error("⚠️ API returned empty beer list")
+            return []
+        
+        # Ensure images
+        for beer in beers:
+            ensure_beer_image(beer)
+        
         return beers
-    except: return []
+        
+    except json.JSONDecodeError as e:
+        st.error(f"⚠️ Failed to parse AI response as JSON")
+        with st.expander("See raw response"):
+            st.code(text[:500])
+        return []
+        
+    except Exception as e:
+        st.error(f"⚠️ Error generating recommendations: {type(e).__name__}")
+        st.write(str(e))
+        return []
+
+def get_brand_search_recommendations(zipcode, brand_query):
+    """Search for specific beer brands with detailed error handling"""
+    
+    if not processing_model:
+        st.error(f"⚠️ AI model not available: {gemini_error}")
+        return []
+    
+    prompt = f"""Act as a beer sommelier. The user is looking for "{brand_query}" or very similar beers available near zipcode {zipcode}.
+
+Return 3 relevant options (the specific beer if available, or closest matches).
+
+Return ONLY a valid JSON array of 3 objects with this exact format:
+[{{"name": "Beer Name", "brand": "Brand Name", "calories": "150", "abv": "5.5%", "description": "A crisp and refreshing beer", "price_range": "$$", "where_to_buy": "Total Wine, BevMo"}}]
+
+Do not include any markdown formatting, code blocks, or explanations. Just the JSON array."""
+    
+    try:
+        response = processing_model.generate_content(prompt)
+        
+        if not response or not response.text:
+            st.error("⚠️ API returned empty response")
+            return []
+        
+        text = response.text.strip()
+        
+        # Clean up markdown code blocks
+        if "```json" in text:
+            text = text.split("```json")[1].split("```")[0].strip()
+        elif "```" in text:
+            text = text.split("```")[1].split("```")[0].strip()
+        
+        beers = json.loads(text)
+        
+        if not isinstance(beers, list) or len(beers) == 0:
+            st.error("⚠️ API returned invalid or empty results")
+            return []
+        
+        for beer in beers:
+            ensure_beer_image(beer)
+        
+        return beers
+        
+    except json.JSONDecodeError as e:
+        st.error(f"⚠️ Failed to parse AI response")
+        with st.expander("See raw response"):
+            st.code(text[:500])
+        return []
+        
+    except Exception as e:
+        st.error(f"⚠️ Error: {type(e).__name__} - {str(e)}")
+        return []
 
 def render_beer_card_html(beer):
     img = f'<img src="{beer.get("image")}" class="beer-image">' if beer.get("image") else ""
@@ -368,7 +520,8 @@ def render_beer_card_html(beer):
     """.replace('\n', '')
 
 # --- Session & Routing ---
-if 'step' not in st.session_state: st.session_state.step = 0
+if 'step' not in st.session_state: 
+    st.session_state.step = 0
 if 'user_data' not in st.session_state: 
     st.session_state.user_data = {
         'name': 'Sats', 
@@ -377,20 +530,30 @@ if 'user_data' not in st.session_state:
         'brand_query': None,
         'day': '', 
         'taste': '',
-        'search_type': None  # Track which path user chose
+        'search_type': None
     }
-if 'rec_beers' not in st.session_state: st.session_state.rec_beers = []
-if 'saved_beers' not in st.session_state: st.session_state.saved_beers = []
+if 'rec_beers' not in st.session_state: 
+    st.session_state.rec_beers = []
+if 'saved_beers' not in st.session_state: 
+    st.session_state.saved_beers = []
+if 'show_debug' not in st.session_state:
+    st.session_state.show_debug = False
 
 def main():
     inject_mobile_css()
+    
+    # Debug toggle (triple-click anywhere to show)
+    if st.sidebar.button("Toggle Debug"):
+        st.session_state.show_debug = not st.session_state.show_debug
+        st.rerun()
+    
+    render_debug_panel()
     
     # Header Nav
     if st.session_state.step > 0:
         c1, c2, c3 = st.columns([1, 2, 1])
         with c1:
             if st.button("←"):
-                # Smart back navigation
                 if st.session_state.step == 3:
                     st.session_state.step = 1
                     st.session_state.rec_beers = []
@@ -399,7 +562,6 @@ def main():
                     st.session_state.user_data['search_type'] = None
                     st.rerun()
                 elif st.session_state.step == 2 and st.session_state.user_data.get('search_type') == 'brand':
-                    # If came from brand path, go back to step 1
                     st.session_state.step = 1
                     st.session_state.user_data['brand_query'] = None
                     st.session_state.user_data['search_type'] = None
@@ -419,6 +581,12 @@ def main():
         render_logo()
         st.markdown('<h1 class="big-greeting">Beer Finder</h1>', unsafe_allow_html=True)
         st.markdown('<p class="gold-text">Your pocket sommelier.</p>', unsafe_allow_html=True)
+        
+        # Show API status
+        if gemini_error:
+            st.warning(f"⚠️ {gemini_error}")
+            st.info("The app may not work correctly. Please check your API configuration.")
+        
         st.markdown('<div style="height: 30px;"></div>', unsafe_allow_html=True)
         
         name_val = st.text_input("YOUR NAME", value="Sats", placeholder="Enter your name", max_chars=35)
@@ -435,7 +603,7 @@ def main():
         
         render_footer()
 
-    # Step 1: Choose Search Type (NEW APPROACH)
+    # Step 1: Choose Search Type
     elif st.session_state.step == 1:
         greet, time = get_greeting(st.session_state.user_data['zipcode'])
         name = st.session_state.user_data.get('name', 'Friend')
@@ -464,19 +632,18 @@ def main():
         st.markdown('<div style="height: 30px;"></div>', unsafe_allow_html=True)
         st.markdown('<p class="gold-text" style="font-size: 1.1rem; margin-bottom: 20px;">How would you like to search?</p>', unsafe_allow_html=True)
         
-        # Two clear button choices
         col1, col2 = st.columns(2)
         
         with col1:
             if st.button("🎭 BY MOOD", key="mood_btn", use_container_width=True):
                 st.session_state.user_data['search_type'] = 'mood'
-                st.session_state.step = 1.5  # Intermediate step for mood input
+                st.session_state.step = 1.5
                 st.rerun()
         
         with col2:
             if st.button("🍺 SPECIFIC BEER", key="brand_btn", use_container_width=True):
                 st.session_state.user_data['search_type'] = 'brand'
-                st.session_state.step = 1.5  # Intermediate step for brand input
+                st.session_state.step = 1.5
                 st.rerun()
         
         render_footer()
@@ -501,6 +668,8 @@ def main():
                         st.session_state.user_data['brand_query'] = None
                         st.session_state.step = 2
                         st.rerun()
+                    else:
+                        st.error("Please describe your mood")
         
         elif search_type == 'brand':
             st.markdown('<div style="height: 20px;"></div>', unsafe_allow_html=True)
@@ -513,35 +682,24 @@ def main():
                         st.session_state.user_data['mood'] = None
                         st.session_state.step = 2
                         st.rerun()
+                    else:
+                        st.error("Please enter a beer name or style")
         
         render_footer()
 
     # Step 2: Context or Direct Search
     elif st.session_state.step == 2:
         if st.session_state.user_data.get('brand_query'):
-             # Auto-search for specific brand
-             brand = st.session_state.user_data.get('brand_query')
-             st.session_state.user_data.update({'day': 'Specific Brand Search', 'taste': 'Specific Brand Search'})
-             
-             search_prompt = f"""
-             Act as a beer sommelier. The user is looking specifically for "{brand}" or very similar beers available near zipcode {st.session_state.user_data['zipcode']}.
-             Return 3 relevant options (the specific beer if available, or closest matches).
-             
-             Return ONLY a valid JSON array of 3 objects:
-             [{{"name": "", "brand": "", "calories": "", "abv": "", "description": "short & punchy", "price_range": "", "where_to_buy": "stores"}}]
-             """
-             
-             with st.spinner(f"Finding {brand}..."):
-                try:
-                    response = processing_model.generate_content(search_prompt)
-                    text = response.text.strip()
-                    if "```" in text: text = text.split("```")[1].replace("json", "").strip()
-                    beers = json.loads(text)
-                    for beer in beers: ensure_beer_image(beer)
-                    st.session_state.rec_beers = beers
-                except:
-                    st.session_state.rec_beers = []
-                    
+            # Brand search path
+            brand = st.session_state.user_data.get('brand_query')
+            st.session_state.user_data.update({'day': 'Specific Brand Search', 'taste': 'Specific Brand Search'})
+            
+            with st.spinner(f"Finding {brand}..."):
+                beers = get_brand_search_recommendations(
+                    st.session_state.user_data['zipcode'],
+                    brand
+                )
+                st.session_state.rec_beers = beers
                 st.session_state.step = 3
                 st.rerun()
         else:
@@ -552,16 +710,20 @@ def main():
                 taste = st.text_input("TASTE PREFERENCE?", placeholder="Hoppy, Sweet, Dark, Surprise me...", max_chars=35)
                 
                 if st.form_submit_button("FIND MY BEER"):
-                    st.session_state.user_data.update({'day': day[:35], 'taste': taste[:35]})
-                    with st.spinner("Pouring recommendations..."):
-                        st.session_state.rec_beers = get_ai_recommendations(
-                            st.session_state.user_data['zipcode'],
-                            st.session_state.user_data['mood'],
-                            day[:35],
-                            taste[:35]
-                        )
-                        st.session_state.step = 3
-                        st.rerun()
+                    if not day or not taste:
+                        st.error("Please fill in both fields")
+                    else:
+                        st.session_state.user_data.update({'day': day[:35], 'taste': taste[:35]})
+                        with st.spinner("Pouring recommendations..."):
+                            beers = get_ai_recommendations(
+                                st.session_state.user_data['zipcode'],
+                                st.session_state.user_data['mood'],
+                                day[:35],
+                                taste[:35]
+                            )
+                            st.session_state.rec_beers = beers
+                            st.session_state.step = 3
+                            st.rerun()
             
             render_footer()
 
@@ -570,32 +732,58 @@ def main():
         st.markdown('<h3 class="gold-text">Top Picks For You</h3>', unsafe_allow_html=True)
         
         if not st.session_state.rec_beers:
-            st.error("Nothing found. Try again.")
-            if st.button("RETRY"): 
-                st.session_state.step = 1
-                st.session_state.user_data['search_type'] = None
-                st.rerun()
+            st.error("No beers found. This might be due to API issues.")
             
-        for beer in st.session_state.rec_beers:
-            st.markdown(render_beer_card_html(beer), unsafe_allow_html=True)
-            saved = any(b['name'] == beer['name'] for b in st.session_state.saved_beers)
-            if not saved:
-                if st.button(f"SAVE", key=beer['name']):
-                    st.session_state.saved_beers.append(beer)
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("TRY AGAIN"):
+                    st.session_state.step = 1
+                    st.session_state.user_data['search_type'] = None
+                    st.session_state.rec_beers = []
                     st.rerun()
-            else:
-                st.button("SAVED ✓", disabled=True, key=beer['name'])
+            
+            with col2:
+                if st.button("GO HOME"):
+                    st.session_state.step = 0
+                    st.session_state.user_data = {
+                        'name': 'Sats', 
+                        'zipcode': '', 
+                        'mood': '', 
+                        'brand_query': None,
+                        'day': '', 
+                        'taste': '',
+                        'search_type': None
+                    }
+                    st.session_state.rec_beers = []
+                    st.rerun()
+        else:
+            for beer in st.session_state.rec_beers:
+                st.markdown(render_beer_card_html(beer), unsafe_allow_html=True)
+                saved = any(b['name'] == beer['name'] for b in st.session_state.saved_beers)
+                if not saved:
+                    if st.button(f"SAVE", key=beer['name']):
+                        st.session_state.saved_beers.append(beer)
+                        st.rerun()
+                else:
+                    st.button("SAVED ✓", disabled=True, key=beer['name'])
         
         render_footer()
 
     # Step 4: Saved
     elif st.session_state.step == 4:
         st.markdown('<h3 class="gold-text">Your Saved Brews</h3>', unsafe_allow_html=True)
-        for i, beer in enumerate(st.session_state.saved_beers):
-            st.markdown(render_beer_card_html(beer), unsafe_allow_html=True)
-            if st.button("REMOVE", key=f"rem_{i}"):
-                st.session_state.saved_beers.pop(i)
+        
+        if not st.session_state.saved_beers:
+            st.info("No saved beers yet. Find some recommendations first!")
+            if st.button("FIND BEERS"):
+                st.session_state.step = 1
                 st.rerun()
+        else:
+            for i, beer in enumerate(st.session_state.saved_beers):
+                st.markdown(render_beer_card_html(beer), unsafe_allow_html=True)
+                if st.button("REMOVE", key=f"rem_{i}"):
+                    st.session_state.saved_beers.pop(i)
+                    st.rerun()
         
         render_footer()
 
