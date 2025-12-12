@@ -1,13 +1,10 @@
 import streamlit as st
 import os
 import json
-import random
 import requests
 import datetime
 from datetime import timedelta
 import base64
-from io import BytesIO
-from PIL import Image
 
 # --- Configuration & Setup ---
 st.set_page_config(
@@ -41,18 +38,20 @@ GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
 GOOGLE_CSE_API_KEY = os.getenv('GOOGLE_CSE_API_KEY')
 GOOGLE_CSE_CX = os.getenv('GOOGLE_CSE_CX')
 
-# Configure Gemini with better error handling
-processing_model = None
-gemini_error = None
-
-if not GENAI_AVAILABLE:
-    gemini_error = "google-generativeai package not installed"
-elif not GEMINI_API_KEY:
-    gemini_error = "GEMINI_API_KEY not found in environment variables"
-else:
+# --- CACHED INITIALIZATION ---
+@st.cache_resource(show_spinner=False)
+def initialize_gemini_model():
+    """Initialize Gemini model once and cache it - OPTIMIZED"""
+    if not GENAI_AVAILABLE:
+        return None, "google-generativeai package not installed"
+    
+    if not GEMINI_API_KEY:
+        return None, "GEMINI_API_KEY not found in environment variables"
+    
     try:
         genai.configure(api_key=GEMINI_API_KEY)
-        # Try multiple model options in order of preference
+        
+        # Try models in order - NO TEST API CALL (this was slowing things down!)
         model_options = [
             'gemini-3-pro-preview',
             'gemini-2.5-pro'
@@ -61,23 +60,24 @@ else:
         
         for model_name in model_options:
             try:
-                processing_model = genai.GenerativeModel(model_name)
-                # Test the model with a simple request
-                test_response = processing_model.generate_content("Say 'OK'")
-                if test_response and test_response.text:
-                    break  # Model works, exit loop
-            except Exception as model_error:
+                model = genai.GenerativeModel(model_name)
+                return model, None  # Return immediately on success
+            except Exception:
                 continue
         
-        if not processing_model:
-            gemini_error = "Could not initialize any Gemini model"
-            
+        return None, "Could not initialize any Gemini model"
+        
     except Exception as e:
-        gemini_error = f"Failed to configure Gemini: {str(e)}"
+        return None, f"Failed to configure Gemini: {str(e)}"
 
-# --- MOBILE STYLED CSS ---
-def inject_mobile_css():
-    st.markdown("""
+# Initialize model (cached)
+processing_model, gemini_error = initialize_gemini_model()
+
+# --- MOBILE STYLED CSS (CACHED) ---
+@st.cache_data
+def get_mobile_css():
+    """Return CSS as string - cached to avoid recomputation"""
+    return """
     <style>
         /* === THEME VARIABLES === */
         :root {
@@ -85,7 +85,7 @@ def inject_mobile_css():
             --bg-card: #1a1a1a;
             --text-main: #ffffff;
             --text-sub: #b0b0b0;
-            --accent: #d4a574; /* Amber */
+            --accent: #d4a574;
             --input-bg: #ffffff;
             --input-text: #000000;
         }
@@ -122,7 +122,6 @@ def inject_mobile_css():
             -webkit-text-fill-color: transparent;
         }
 
-        /* Gold Color Utility Class */
         .gold-text {
             color: var(--accent) !important;
         }
@@ -149,7 +148,6 @@ def inject_mobile_css():
             opacity: 1 !important;
         }
         
-        /* Gold Labels */
         .stTextInput label {
             color: var(--accent) !important;
             text-align: center !important;
@@ -166,37 +164,7 @@ def inject_mobile_css():
             border-color: var(--accent) !important;
         }
 
-        /* === CHOICE BUTTONS === */
-        .choice-button {
-            width: 100%;
-            padding: 20px;
-            margin: 10px 0;
-            border-radius: 15px;
-            border: 2px solid var(--accent);
-            background: transparent;
-            color: var(--accent);
-            font-size: 1.1rem;
-            font-weight: 600;
-            text-transform: uppercase;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            text-align: center;
-        }
-
-        .choice-button:hover {
-            background: var(--accent);
-            color: #000;
-        }
-
-        .choice-subtitle {
-            font-size: 0.8rem;
-            color: var(--text-sub);
-            margin-top: 5px;
-            text-transform: none;
-            font-weight: 400;
-        }
-
-        /* === BUTTONS (CENTERED) === */
+        /* === BUTTONS === */
         .stButton {
             display: flex !important;
             justify-content: center !important;
@@ -220,7 +188,6 @@ def inject_mobile_css():
             color: #000 !important;
         }
         
-        /* Form Submit Button Centering */
         div[data-testid="stFormSubmitButton"] {
             display: flex !important;
             justify-content: center !important;
@@ -266,7 +233,6 @@ def inject_mobile_css():
         .metric-value { font-size: 1.1rem; font-weight: bold; color: #fff; }
         .metric-label { font-size: 0.7rem; color: #888; text-transform: uppercase; }
 
-        /* Footer */
         .footer {
             margin-top: 50px;
             text-align: center;
@@ -276,7 +242,6 @@ def inject_mobile_css():
             border-top: 1px solid #333;
         }
 
-        /* Debug Panel */
         .debug-panel {
             background: #1a1a1a;
             border: 1px solid #333;
@@ -287,17 +252,28 @@ def inject_mobile_css():
             color: #888;
         }
     </style>
-    """, unsafe_allow_html=True)
+    """
+
+def inject_mobile_css():
+    """Inject cached CSS"""
+    st.markdown(get_mobile_css(), unsafe_allow_html=True)
 
 # --- Helper Functions ---
 
+@st.cache_data
+def load_image_as_base64(image_path):
+    """Cache image loading to avoid repeated disk reads"""
+    if os.path.exists(image_path):
+        with open(image_path, "rb") as f:
+            return base64.b64encode(f.read()).decode()
+    return None
+
 def render_logo():
-    """Render logo.png instead of emoji"""
+    """Render logo with cached image loading"""
     logo_path = os.path.join(os.path.dirname(__file__), "static", "images", "logo.png")
-    if os.path.exists(logo_path):
-        with open(logo_path, "rb") as f:
-            data = f.read()
-            encoded = base64.b64encode(data).decode()
+    encoded = load_image_as_base64(logo_path)
+    
+    if encoded:
         st.markdown(f"""
             <div style="display: flex; justify-content: center; margin-bottom: 20px;">
                 <img src="data:image/png;base64,{encoded}" style="width: 120px; height: auto;">
@@ -314,7 +290,7 @@ def render_footer():
     """, unsafe_allow_html=True)
 
 def render_debug_panel():
-    """Show debug information - remove this in production"""
+    """Show debug information"""
     if st.session_state.get('show_debug', False):
         debug_info = f"""
         <div class="debug-panel">
@@ -330,12 +306,12 @@ def render_debug_panel():
         """
         st.markdown(debug_info, unsafe_allow_html=True)
 
+@st.cache_data(ttl=3600)
 def get_greeting(zipcode):
-    """Simple Time Greeting"""
+    """Cached greeting calculation - TTL 1 hour"""
     greeting = "Hello"
     time_str = ""
     try:
-        # Heuristic timezone offset
         first_digit = int(str(zipcode)[0])
         if first_digit in [0, 1, 2, 3]: offset = -5
         elif first_digit in [4, 5, 6]: offset = -6
@@ -357,7 +333,9 @@ def get_greeting(zipcode):
 
     return greeting, time_str
 
+@st.cache_data(ttl=86400)
 def google_custom_search(query, num=1):
+    """Cached image search - TTL 24 hours"""
     if not GOOGLE_CSE_API_KEY or not GOOGLE_CSE_CX: 
         return None
     try:
@@ -378,6 +356,7 @@ def google_custom_search(query, num=1):
     return None
 
 def ensure_beer_image(beer):
+    """Add image to beer if missing"""
     if not beer.get('image'):
         query = f"{beer.get('name', '')} {beer.get('brand', '')} beer bottle"
         image_url = google_custom_search(query)
@@ -386,13 +365,13 @@ def ensure_beer_image(beer):
     return beer
 
 def get_ai_recommendations(zipcode, mood, day_context, taste_pref):
-    """Get AI recommendations with detailed error handling"""
+    """Get AI recommendations - optimized error handling"""
     
     if not processing_model:
         st.error(f"⚠️ AI model not available: {gemini_error}")
         return []
     
-    # Trim inputs to 35 chars
+    # Trim inputs
     s_zip = str(zipcode)[:5]
     s_mood = str(mood)[:35]
     s_day = str(day_context)[:35]
@@ -415,43 +394,36 @@ Do not include any markdown formatting, code blocks, or explanations. Just the J
         
         text = response.text.strip()
         
-        # Clean up markdown code blocks if present
+        # Clean markdown
         if "```json" in text:
             text = text.split("```json")[1].split("```")[0].strip()
         elif "```" in text:
             text = text.split("```")[1].split("```")[0].strip()
         
-        # Try to parse JSON
         beers = json.loads(text)
         
-        # Validate structure
-        if not isinstance(beers, list):
-            st.error("⚠️ API returned invalid format (not a list)")
+        if not isinstance(beers, list) or len(beers) == 0:
+            st.error("⚠️ API returned invalid format")
             return []
         
-        if len(beers) == 0:
-            st.error("⚠️ API returned empty beer list")
-            return []
-        
-        # Ensure images
+        # Add images
         for beer in beers:
             ensure_beer_image(beer)
         
         return beers
         
-    except json.JSONDecodeError as e:
+    except json.JSONDecodeError:
         st.error(f"⚠️ Failed to parse AI response as JSON")
         with st.expander("See raw response"):
             st.code(text[:500])
         return []
         
     except Exception as e:
-        st.error(f"⚠️ Error generating recommendations: {type(e).__name__}")
-        st.write(str(e))
+        st.error(f"⚠️ Error: {type(e).__name__} - {str(e)}")
         return []
 
 def get_brand_search_recommendations(zipcode, brand_query):
-    """Search for specific beer brands with detailed error handling"""
+    """Search for specific beer brands"""
     
     if not processing_model:
         st.error(f"⚠️ AI model not available: {gemini_error}")
@@ -475,7 +447,7 @@ Do not include any markdown formatting, code blocks, or explanations. Just the J
         
         text = response.text.strip()
         
-        # Clean up markdown code blocks
+        # Clean markdown
         if "```json" in text:
             text = text.split("```json")[1].split("```")[0].strip()
         elif "```" in text:
@@ -492,7 +464,7 @@ Do not include any markdown formatting, code blocks, or explanations. Just the J
         
         return beers
         
-    except json.JSONDecodeError as e:
+    except json.JSONDecodeError:
         st.error(f"⚠️ Failed to parse AI response")
         with st.expander("See raw response"):
             st.code(text[:500])
@@ -502,24 +474,26 @@ Do not include any markdown formatting, code blocks, or explanations. Just the J
         st.error(f"⚠️ Error: {type(e).__name__} - {str(e)}")
         return []
 
-def render_beer_card_html(beer):
-    img = f'<img src="{beer.get("image")}" class="beer-image">' if beer.get("image") else ""
+@st.cache_data
+def render_beer_card_html(name, brand, image, abv, calories, price_range, description, where_to_buy):
+    """Cached beer card rendering - pass individual params for better caching"""
+    img = f'<img src="{image}" class="beer-image">' if image else ""
     return f"""
     <div class="beer-card">
         {img}
-        <div class="beer-title">{beer.get("name", "Unknown")}</div>
-        <div class="beer-brand">{beer.get("brand", "Craft Beer")}</div>
+        <div class="beer-title">{name}</div>
+        <div class="beer-brand">{brand}</div>
         <div class="beer-metrics">
-            <div><div class="metric-value">{beer.get("abv", "?")}</div><div class="metric-label">ABV</div></div>
-            <div><div class="metric-value">{beer.get("calories", "?")}</div><div class="metric-label">Cals</div></div>
-            <div><div class="metric-value">{beer.get("price_range", "$")}</div><div class="metric-label">Price</div></div>
+            <div><div class="metric-value">{abv}</div><div class="metric-label">ABV</div></div>
+            <div><div class="metric-value">{calories}</div><div class="metric-label">Cals</div></div>
+            <div><div class="metric-value">{price_range}</div><div class="metric-label">Price</div></div>
         </div>
-        <div style="color: #ccc; font-size: 0.9rem; line-height: 1.4; margin-bottom: 10px;">{beer.get("description", "")}</div>
-        <div style="color: #d4a574; font-size: 0.8rem;">📍 {beer.get("where_to_buy", "Check Local Stores")}</div>
+        <div style="color: #ccc; font-size: 0.9rem; line-height: 1.4; margin-bottom: 10px;">{description}</div>
+        <div style="color: #d4a574; font-size: 0.8rem;">📍 {where_to_buy}</div>
     </div>
     """.replace('\n', '')
 
-# --- Session & Routing ---
+# --- Session State Initialization ---
 if 'step' not in st.session_state: 
     st.session_state.step = 0
 if 'user_data' not in st.session_state: 
@@ -542,7 +516,7 @@ if 'show_debug' not in st.session_state:
 def main():
     inject_mobile_css()
     
-    # Debug toggle (triple-click anywhere to show)
+    # Debug toggle
     if st.sidebar.button("Toggle Debug"):
         st.session_state.show_debug = not st.session_state.show_debug
         st.rerun()
@@ -575,14 +549,13 @@ def main():
                     st.session_state.step = 4
                     st.rerun()
 
-    # Step 0: Welcome / Name / Zip
+    # Step 0: Welcome
     if st.session_state.step == 0:
         st.markdown('<div style="height: 60px;"></div>', unsafe_allow_html=True)
         render_logo()
         st.markdown('<h1 class="big-greeting">Beer Finder</h1>', unsafe_allow_html=True)
         st.markdown('<p class="gold-text">Your pocket sommelier.</p>', unsafe_allow_html=True)
         
-        # Show API status
         if gemini_error:
             st.warning(f"⚠️ {gemini_error}")
             st.info("The app may not work correctly. Please check your API configuration.")
@@ -608,12 +581,11 @@ def main():
         greet, time = get_greeting(st.session_state.user_data['zipcode'])
         name = st.session_state.user_data.get('name', 'Friend')
         
-        # Display Beer Pour GIF
+        # Display GIF with caching
         gif_path = os.path.join(os.path.dirname(__file__), "static", "images", "beer.gif.gif")
-        if os.path.exists(gif_path):
-            with open(gif_path, "rb") as f:
-                data = f.read()
-                encoded = base64.b64encode(data).decode()
+        encoded = load_image_as_base64(gif_path)
+        
+        if encoded:
             st.markdown(f"""
                 <div style="display: flex; justify-content: center; margin-bottom: 20px;">
                     <img src="data:image/gif;base64,{encoded}" 
@@ -623,9 +595,7 @@ def main():
         else:
              st.markdown('<div style="display: flex; justify-content: center; margin-bottom: 20px;"><div style="font-size: 5rem;">🍺</div></div>', unsafe_allow_html=True)
         
-        welcome_msg = f"{greet}, {name}."
-        
-        st.markdown(f'<div class="big-greeting">{welcome_msg}</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="big-greeting">{greet}, {name}.</div>', unsafe_allow_html=True)
         if time:
             st.markdown(f'<p class="gold-text">It is currently {time}</p>', unsafe_allow_html=True)
         
@@ -648,7 +618,7 @@ def main():
         
         render_footer()
 
-    # Step 1.5: Input based on choice
+    # Step 1.5: Input
     elif st.session_state.step == 1.5:
         greet, time = get_greeting(st.session_state.user_data['zipcode'])
         name = st.session_state.user_data.get('name', 'Friend')
@@ -687,10 +657,9 @@ def main():
         
         render_footer()
 
-    # Step 2: Context or Direct Search
+    # Step 2: Context or Search
     elif st.session_state.step == 2:
         if st.session_state.user_data.get('brand_query'):
-            # Brand search path
             brand = st.session_state.user_data.get('brand_query')
             st.session_state.user_data.update({'day': 'Specific Brand Search', 'taste': 'Specific Brand Search'})
             
@@ -703,7 +672,6 @@ def main():
                 st.session_state.step = 3
                 st.rerun()
         else:
-            # Mood path - ask for context
             st.markdown('<h3 class="gold-text">Tell me more...</h3>', unsafe_allow_html=True)
             with st.form("context"):
                 day = st.text_input("HOW WAS YOUR DAY?", placeholder="Long work day, celebrating...", max_chars=35)
@@ -758,7 +726,19 @@ def main():
                     st.rerun()
         else:
             for beer in st.session_state.rec_beers:
-                st.markdown(render_beer_card_html(beer), unsafe_allow_html=True)
+                # Use cached rendering with individual parameters
+                card_html = render_beer_card_html(
+                    beer.get("name", "Unknown"),
+                    beer.get("brand", "Craft Beer"),
+                    beer.get("image"),
+                    beer.get("abv", "?"),
+                    beer.get("calories", "?"),
+                    beer.get("price_range", "$"),
+                    beer.get("description", ""),
+                    beer.get("where_to_buy", "Check Local Stores")
+                )
+                st.markdown(card_html, unsafe_allow_html=True)
+                
                 saved = any(b['name'] == beer['name'] for b in st.session_state.saved_beers)
                 if not saved:
                     if st.button(f"SAVE", key=beer['name']):
@@ -780,7 +760,17 @@ def main():
                 st.rerun()
         else:
             for i, beer in enumerate(st.session_state.saved_beers):
-                st.markdown(render_beer_card_html(beer), unsafe_allow_html=True)
+                card_html = render_beer_card_html(
+                    beer.get("name", "Unknown"),
+                    beer.get("brand", "Craft Beer"),
+                    beer.get("image"),
+                    beer.get("abv", "?"),
+                    beer.get("calories", "?"),
+                    beer.get("price_range", "$"),
+                    beer.get("description", ""),
+                    beer.get("where_to_buy", "Check Local Stores")
+                )
+                st.markdown(card_html, unsafe_allow_html=True)
                 if st.button("REMOVE", key=f"rem_{i}"):
                     st.session_state.saved_beers.pop(i)
                     st.rerun()
