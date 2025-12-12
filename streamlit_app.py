@@ -54,7 +54,7 @@ def initialize_gemini_model():
         # Try models in order - NO TEST API CALL (this was slowing things down!)
         model_options = [
             'gemini-3-pro-preview',
-            'gemini-2.5-pro',
+            'gemini-2.5-pro'
             'gemini-1.5-pro-latest'
         ]
         
@@ -395,8 +395,8 @@ Do not include any markdown formatting, code blocks, or explanations. Just the J
         text = response.text.strip()
         
         # Clean markdown
-        if "" in text:
-            text = text.split("")[1].split("```")[0].strip()
+        if "```json" in text:
+            text = text.split("```json")[1].split("```")[0].strip()
         elif "```" in text:
             text = text.split("```")[1].split("```")[0].strip()
         
@@ -448,8 +448,8 @@ Do not include any markdown formatting, code blocks, or explanations. Just the J
         text = response.text.strip()
         
         # Clean markdown
-        if "" in text:
-            text = text.split("")[1].split("```")[0].strip()
+        if "```json" in text:
+            text = text.split("```json")[1].split("```")[0].strip()
         elif "```" in text:
             text = text.split("```")[1].split("```")[0].strip()
         
@@ -674,18 +674,19 @@ def main():
         else:
             st.markdown('<h3 class="gold-text">Tell me more...</h3>', unsafe_allow_html=True)
             with st.form("context"):
+                day = st.text_input("HOW WAS YOUR DAY?", placeholder="Long work day, celebrating...", max_chars=35)
                 taste = st.text_input("TASTE PREFERENCE?", placeholder="Hoppy, Sweet, Dark, Surprise me...", max_chars=35)
                 
                 if st.form_submit_button("FIND MY BEER"):
-                    if not taste:
-                        st.error("Please enter your taste preference")
+                    if not day or not taste:
+                        st.error("Please fill in both fields")
                     else:
-                        st.session_state.user_data.update({'taste': taste[:35]})
+                        st.session_state.user_data.update({'day': day[:35], 'taste': taste[:35]})
                         with st.spinner("Pouring recommendations..."):
                             beers = get_ai_recommendations(
                                 st.session_state.user_data['zipcode'],
                                 st.session_state.user_data['mood'],
-                                st.session_state.user_data['mood'],
+                                day[:35],
                                 taste[:35]
                             )
                             st.session_state.rec_beers = beers
