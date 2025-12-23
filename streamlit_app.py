@@ -53,7 +53,7 @@ def initialize_gemini_model():
         
         # Try models in order - NO TEST API CALL (this was slowing things down!)
         model_options = [
-            'gemini-3-pro-preview',
+            'gemini-3-flash-preview',
             'gemini-2.5-pro'
             'gemini-1.5-pro-latest'
         ]
