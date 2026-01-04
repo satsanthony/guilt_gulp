@@ -7,6 +7,7 @@ from datetime import timedelta
 import base64
 import sys
 import re
+from huggingface_hub import HfApi, hf_hub_download
 
 # --- Configuration & Setup ---
 st.set_page_config(
@@ -46,6 +47,9 @@ GOOGLE_CSE_CX = os.getenv('GOOGLE_CSE_CX')
 GOOGLE_PLACES_API_KEY = os.getenv('GOOGLE_PLACES_API_KEY')
 GOOGLE_GEOCODING_API_KEY = os.getenv('GOOGLE_GEOCODING_API_KEY') or GOOGLE_PLACES_API_KEY
 
+# Initialize HF API
+HF_TOKEN = os.getenv('HF_TOKEN')  # Add this to Space secrets
+HF_DATASET_REPO = "mashomashi/beer_data"  # Your dataset repo
 # --- Debug Helper ---
 def debug_print(message, level="INFO"):
     """Print debug messages to terminal with color coding"""
@@ -61,52 +65,132 @@ def debug_print(message, level="INFO"):
     print(f"{color}[{level}] [{timestamp}] {message}{colors['RESET']}", file=sys.stderr)
 
 # --- LOGGING FUNCTIONS ---
+# def log_beer_selection(username, beer_name, brand, search_type, mood=None):
+#     """Log user's beer selection to log.txt"""
+#     log_file = os.path.join(LOG_DIR, "log.txt")
+#     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
+#     # Read existing logs
+#     existing_logs = []
+#     if os.path.exists(log_file):
+#         try:
+#             with open(log_file, 'r', encoding='utf-8') as f:
+#                 existing_logs = f.readlines()
+#         except:
+#             pass
+    
+#     # Create new log entry
+#     if search_type == 'mood' and mood:
+#         log_entry = f"[{timestamp}] User: {username} | Beer: {beer_name} ({brand}) | Search: By Mood ({mood})\n"
+#     else:
+#         log_entry = f"[{timestamp}] User: {username} | Beer: {beer_name} ({brand}) | Search: Specific Beer\n"
+    
+#     # Write with newest on top
+#     with open(log_file, 'w', encoding='utf-8') as f:
+#         f.write(log_entry)
+#         for line in existing_logs:
+#             f.write(line)
+    
+#     debug_print(f"Logged selection: {beer_name} for {username}", "SUCCESS")
 def log_beer_selection(username, beer_name, brand, search_type, mood=None):
-    """Log user's beer selection to log.txt"""
-    log_file = os.path.join(LOG_DIR, "log.txt")
-    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    
-    # Read existing logs
-    existing_logs = []
-    if os.path.exists(log_file):
-        try:
-            with open(log_file, 'r', encoding='utf-8') as f:
-                existing_logs = f.readlines()
-        except:
-            pass
-    
-    # Create new log entry
-    if search_type == 'mood' and mood:
-        log_entry = f"[{timestamp}] User: {username} | Beer: {beer_name} ({brand}) | Search: By Mood ({mood})\n"
-    else:
-        log_entry = f"[{timestamp}] User: {username} | Beer: {beer_name} ({brand}) | Search: Specific Beer\n"
-    
-    # Write with newest on top
-    with open(log_file, 'w', encoding='utf-8') as f:
-        f.write(log_entry)
-        for line in existing_logs:
-            f.write(line)
-    
-    debug_print(f"Logged selection: {beer_name} for {username}", "SUCCESS")
-
-def save_feedback(username, feedback_text):
-    """Save user feedback to a file"""
-    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"{username}_{timestamp}.txt"
-    filepath = os.path.join(FEEDBACK_DIR, filename)
+    """Log user's beer selection to Hugging Face dataset"""
+    if not HF_TOKEN:
+        debug_print("HF_TOKEN not set, skipping logging", "WARNING")
+        return
     
     try:
-        with open(filepath, 'w', encoding='utf-8') as f:
-            f.write(f"Feedback from: {username}\n")
-            f.write(f"Date: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-            f.write("="*50 + "\n\n")
-            f.write(feedback_text)
-        debug_print(f"Saved feedback for {username}", "SUCCESS")
-        return True
+        import tempfile
+        api = HfApi()
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        # Download existing log
+        try:
+            log_path = hf_hub_download(
+                repo_id=HF_DATASET_REPO,
+                filename="log.txt",
+                repo_type="dataset",
+                token=HF_TOKEN
+            )
+            with open(log_path, 'r', encoding='utf-8') as f:
+                existing_logs = f.read()
+        except:
+            existing_logs = ""
+        
+        # Create new log entry
+        if search_type == 'mood' and mood:
+            log_entry = f"[{timestamp}] User: {username} | Beer: {beer_name} ({brand}) | Search: By Mood ({mood})\n"
+        else:
+            log_entry = f"[{timestamp}] User: {username} | Beer: {beer_name} ({brand}) | Search: Specific Beer\n"
+        
+        # Combine and write
+        new_content = log_entry + existing_logs
+        
+        # Save to temp file using tempfile module
+        with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', delete=False, suffix='.txt') as f:
+            f.write(new_content)
+            temp_path = f.name
+        
+        try:
+            # Upload to HF dataset
+            api.upload_file(
+                path_or_fileobj=temp_path,
+                path_in_repo="log.txt",
+                repo_id=HF_DATASET_REPO,
+                repo_type="dataset",
+                token=HF_TOKEN
+            )
+            
+            debug_print(f"Logged selection to HF dataset: {beer_name}", "SUCCESS")
+        finally:
+            # Clean up temp file
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+        
     except Exception as e:
-        debug_print(f"Error saving feedback: {e}", "ERROR")
+        debug_print(f"Error logging to HF dataset: {e}", "ERROR")
+# 
+def save_feedback(username, feedback_text):
+    """Save user feedback to Hugging Face dataset"""
+    if not HF_TOKEN:
+        debug_print("HF_TOKEN not set, skipping feedback", "WARNING")
         return False
-
+    
+    try:
+        import tempfile
+        api = HfApi()
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"feedback/{username}_{timestamp}.txt"
+        
+        content = f"Feedback from: {username}\n"
+        content += f"Date: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+        content += "="*50 + "\n\n"
+        content += feedback_text
+        
+        # Save to temp file using tempfile module
+        with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', delete=False, suffix='.txt') as f:
+            f.write(content)
+            temp_path = f.name
+        
+        try:
+            # Upload to HF dataset
+            api.upload_file(
+                path_or_fileobj=temp_path,
+                path_in_repo=filename,
+                repo_id=HF_DATASET_REPO,
+                repo_type="dataset",
+                token=HF_TOKEN
+            )
+            
+            debug_print(f"Saved feedback to HF dataset", "SUCCESS")
+            return True
+        finally:
+            # Clean up temp file
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+        
+    except Exception as e:
+        debug_print(f"Error saving feedback to HF dataset: {e}", "ERROR")
+        return False
 # --- CACHED INITIALIZATION ---
 @st.cache_resource(show_spinner=False)
 def initialize_gemini_model():
