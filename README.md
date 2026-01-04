@@ -1,7 +1,3 @@
-# 🍺 Beer Finder AI
-
-A sophisticated AI-powered beer recommendation system that uses multiple intelligent agents to help you discover your perfect brew and find where to drink it nearby.
-
 ---
 title: Beer Explorer
 emoji: 🍺
@@ -11,6 +7,11 @@ sdk: docker
 app_port: 7860
 pinned: false
 ---
+
+# 🍺 Beer Finder AI
+
+A sophisticated AI-powered beer recommendation system that uses multiple intelligent agents to help you discover your perfect brew and find where to drink it nearby.
+
 
 ## 🎯 Overview
 
