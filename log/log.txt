@@ -1,1 +1,2 @@
-[2026-01-04 11:07:02] User: Froggy | Beer: Orderville (Modern Times Beer) | Search: By Mood (Hyped)
+[2026-01-04 11:07:02] User: Froggy | Beer: Orderville (Modern Times Beer) | Search: By Mood (Hyped){"timestamp": "2026-01-10T09:32:14.708254", "action": "specific_search", "data": {"query": "Guinness", "zipcode": "90049"}}
+{"timestamp": "2026-01-10T09:34:42.970044", "action": "non_alcoholic_search", "data": {"preferences": "light", "zipcode": "90049"}}
