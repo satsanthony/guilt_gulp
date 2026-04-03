@@ -5,6 +5,7 @@ import logging
 logging.basicConfig(level=logging.DEBUG)
 
 try:
+    # paste all your existing imports here
     import streamlit as st
     import google.generativeai as genai
     import os
@@ -16,6 +17,7 @@ try:
     import io
     import sys
     from huggingface_hub import HfApi, hf_hub_download
+    # ... rest of your imports
 except Exception as e:
     print("STARTUP ERROR:", e)
     traceback.print_exc()
@@ -29,6 +31,7 @@ try:
 except ImportError:
     _PIL_AVAILABLE = False
 
+# Optional: streamlit-mic-recorder (install via packages.txt on HF Spaces)
 try:
     from streamlit_mic_recorder import mic_recorder
     MIC_RECORDER_AVAILABLE = True
@@ -136,9 +139,9 @@ def save_feedback(username, feedback_text):
             f.write(content)
     except Exception as e:
         debug_print(f"Local feedback failed: {e}", "ERROR")
-    return True
+    return True  # always succeed from UI perspective
 
-# ── Gemini init ──────────────────────────────────────────────────────────────
+# ── Gemini init — required model order ──────────────────────────────────────
 @st.cache_resource(show_spinner=False)
 def initialize_gemini_model():
     if not GENAI_AVAILABLE:
@@ -376,13 +379,6 @@ def get_mobile_css():
             font-size: 0.7rem; font-weight: 700; text-transform: uppercase;
             letter-spacing: 0.12em; margin-bottom: 14px;
         }
-        .beer-rating-badge {
-            display: inline-flex; align-items: center; gap: 5px;
-            background: rgba(255,209,101,0.1); border: 1px solid rgba(255,209,101,0.3);
-            border-radius: 20px; padding: 4px 12px; margin-bottom: 10px;
-            font-family: 'Space Grotesk', sans-serif; font-size: 0.72rem; font-weight: 700;
-            color: #ffd165;
-        }
         .beer-metrics { display: grid; grid-template-columns: repeat(3,1fr); gap: 8px; margin: 12px 0; }
         .metric-box {
             background: var(--bg-card-low); border-radius: 12px; padding: 10px 6px;
@@ -406,17 +402,6 @@ def get_mobile_css():
             color: var(--text-sub); line-height: 1.5; text-align: left !important;
         }
 
-        /* ── ZIP SEARCH PANEL ── */
-        .zip-search-panel {
-            background: var(--bg-card); border: 1px solid rgba(255,209,101,0.15);
-            border-radius: 16px; padding: 16px; margin: 10px 0 4px;
-        }
-        .zip-search-title {
-            font-family: 'Space Grotesk', sans-serif; font-size: 0.7rem; font-weight: 700;
-            color: var(--accent); text-transform: uppercase; letter-spacing: 0.12em;
-            text-align: center !important; margin-bottom: 8px;
-        }
-
         /* ── BAR CARD ── */
         .bar-card {
             background: var(--bg-card-low); padding: 14px; margin: 10px 0;
@@ -425,17 +410,6 @@ def get_mobile_css():
         .bar-name { font-family: 'Epilogue', sans-serif; font-weight: 800; color: #d9e3f6; font-size: 1rem; margin-bottom: 5px; }
         .bar-address { color: var(--text-sub); font-size: 0.82rem; margin: 4px 0; }
         .bar-rating  { color: var(--accent); margin-top: 6px; font-size: 0.85rem; }
-
-        /* ── REFINE SEARCH BAR ── */
-        .refine-bar {
-            background: var(--bg-card); border: 1px solid rgba(255,209,101,0.15);
-            border-radius: 16px; padding: 14px 16px; margin: 0 0 18px;
-        }
-        .refine-bar-label {
-            font-family: 'Space Grotesk', sans-serif; font-size: 0.68rem; font-weight: 700;
-            color: var(--accent); text-transform: uppercase; letter-spacing: 0.12em;
-            text-align: center !important; margin-bottom: 8px;
-        }
 
         /* ── VOICE BUBBLE ── */
         .voice-heard-bubble {
@@ -530,16 +504,22 @@ def render_debug_panel():
         • mic_recorder: {MIC_RECORDER_AVAILABLE} | audio_input: {hasattr(st,'audio_input')}
     </div>""", unsafe_allow_html=True)
 
-# ── DST-aware greeting ───────────────────────────────────────────────────────
-def get_greeting(zipcode="90210"):
+# ── DST-aware greeting — NOT cached so time is always live ───────────────────
+def get_greeting(zipcode):
+    """
+    Returns (greeting, time_str) for the given US zip.
+    Applies US DST rule (2nd Sun March → 1st Sun November) to avoid
+    the 1-hour-behind bug that occurred with a fixed standard offset.
+    """
     greeting = "Hello"
     time_str  = ""
     try:
-        first = int(str(zipcode)[0]) if zipcode else 9
-        if   first in [0, 1, 2, 3]: std = -5
-        elif first in [4, 5, 6]:    std = -6
-        elif first == 7:             std = -7
-        else:                        std = -8
+        first = int(str(zipcode)[0])
+        # Standard (winter) UTC offset by zip prefix
+        if   first in [0, 1, 2, 3]: std = -5   # Eastern
+        elif first in [4, 5, 6]:    std = -6   # Central
+        elif first == 7:             std = -7   # Mountain
+        else:                        std = -8   # Pacific
 
         now_utc = datetime.datetime.utcnow()
         y = now_utc.year
@@ -634,6 +614,7 @@ def zip_to_coords(zipcode):
 
 @st.cache_data(ttl=86400)
 def city_state_from_zip(zipcode):
+    """Returns (city, state_abbr) for display below the zip input."""
     if not GOOGLE_GEOCODING_API_KEY:
         return "", ""
     try:
@@ -655,7 +636,9 @@ def city_state_from_zip(zipcode):
         debug_print(f"city_state_from_zip: {e}", "ERROR")
     return "", ""
 
+
 def city_from_zip(zipcode):
+    """Legacy wrapper used by bar agents (city name only)."""
     city, _ = city_state_from_zip(zipcode)
     return city
 
@@ -700,7 +683,7 @@ def ai_extract_bar_names(web_results, beer_name, city):
         debug_print(f"Bar extract: {e}", "ERROR")
         return []
 
-def verify_bars_places(bar_names, lat, lng, radius=16093):  # 10 miles in meters
+def verify_bars_places(bar_names, lat, lng, radius=8000):
     if not GOOGLE_PLACES_API_KEY or not bar_names:
         return []
     verified = []
@@ -739,107 +722,13 @@ def verify_bars_places(bar_names, lat, lng, radius=16093):  # 10 miles in meters
     return verified
 
 @st.cache_data(ttl=3600)
-def find_bars_nearby(lat, lng, beer_name, brand, zipcode):
-    """Find bars within 10 miles selling the given beer."""
+def find_bars(lat, lng, beer_name, brand, zipcode):
     city  = city_from_zip(zipcode)
     webs  = web_search_bars(beer_name, brand, zipcode, city)
     if not webs: return []
     names = ai_extract_bar_names(webs, beer_name, city)
     if not names: return []
-    return verify_bars_places(names, lat, lng, radius=16093)
-
-@st.cache_data(ttl=3600)
-def find_na_venues_nearby(lat, lng, zipcode):
-    """Find venues within 10 miles carrying non-alcoholic beers."""
-    if not GOOGLE_PLACES_API_KEY:
-        return []
-    city = city_from_zip(zipcode)
-    queries = [
-        f"non-alcoholic beer bar near {city}",
-        f"craft non-alcoholic drinks near {zipcode}",
-    ]
-    names = []
-    if GOOGLE_CSE_API_KEY and GOOGLE_CSE_CX:
-        for q in queries:
-            try:
-                r = requests.get("https://www.googleapis.com/customsearch/v1",
-                                 params={"key": GOOGLE_CSE_API_KEY, "cx": GOOGLE_CSE_CX,
-                                         "q": q, "num": 5}, timeout=10)
-                if r.status_code == 200:
-                    items = r.json().get("items", [])
-                    if items and processing_model:
-                        summary = "\n".join(
-                            f"{i+1}: {it.get('title','')} - {it.get('snippet','')}"
-                            for i, it in enumerate(items[:6]))
-                        prompt = (f"Extract real bar/venue names from results about non-alcoholic drinks in {city}.\n"
-                                  f"{summary}\n"
-                                  f'Return ONLY JSON: [{{"name":"Venue Name","confidence":"high/medium"}}] Max 6. No markdown.')
-                        resp = processing_model.generate_content(prompt)
-                        if resp and resp.text:
-                            text = resp.text.strip()
-                            if "```json" in text: text = text.split("```json")[1].split("```")[0].strip()
-                            elif "```" in text:   text = text.split("```")[1].split("```")[0].strip()
-                            extracted = json.loads(text)
-                            if isinstance(extracted, list):
-                                names.extend(extracted)
-            except Exception as e:
-                debug_print(f"NA venue search: {e}", "ERROR")
-    if not names:
-        names = [{"name": f"craft beer bar {city}"}, {"name": f"gastropub {city}"}]
-    return verify_bars_places(names, lat, lng, radius=16093)
-
-# ── beer availability via Places ──────────────────────────────────────────────
-@st.cache_data(ttl=3600)
-def check_beer_availability_nearby(beer_name, brand, zipcode):
-    """
-    Search Google Places for stores/bars stocking this beer within 10 miles.
-    Returns list of place dicts.
-    """
-    if not GOOGLE_PLACES_API_KEY:
-        return []
-    lat, lng = zip_to_coords(zipcode)
-    if not lat:
-        return []
-    city = city_from_zip(zipcode) or zipcode
-    radius = 16093  # 10 miles
-
-    results = []
-    queries = [
-        f"{beer_name} {brand} beer store near {city}",
-        f"buy {beer_name} beer near {zipcode}",
-    ]
-    for q in queries:
-        try:
-            r = requests.post(
-                "https://places.googleapis.com/v1/places:searchText",
-                json={"textQuery": q,
-                      "locationBias": {"circle": {"center": {"latitude": lat, "longitude": lng},
-                                                   "radius": radius}},
-                      "maxResultCount": 3},
-                headers={"Content-Type": "application/json",
-                         "X-Goog-Api-Key": GOOGLE_PLACES_API_KEY,
-                         "X-Goog-FieldMask": ("places.displayName,places.formattedAddress,"
-                                               "places.rating,places.priceLevel,places.id,places.location")},
-                timeout=10)
-            if r.status_code == 200:
-                for p in r.json().get("places", []):
-                    pl = p.get("priceLevel")
-                    entry = {
-                        "name":        p.get("displayName", {}).get("text", "Unknown"),
-                        "address":     p.get("formattedAddress", ""),
-                        "rating":      p.get("rating", "N/A"),
-                        "price_level": "$" * int(pl) if pl and str(pl).isdigit() else "$$",
-                        "place_id":    p.get("id", ""),
-                        "lat":         p.get("location", {}).get("latitude"),
-                        "lng":         p.get("location", {}).get("longitude"),
-                    }
-                    if not any(x["name"] == entry["name"] for x in results):
-                        results.append(entry)
-        except Exception as e:
-            debug_print(f"Availability check: {e}", "ERROR")
-        if len(results) >= 4:
-            break
-    return results[:5]
+    return verify_bars_places(names, lat, lng)
 
 # ── beer image ────────────────────────────────────────────────────────────────
 def attach_image(beer):
@@ -884,8 +773,7 @@ def parse_beer_json(text):
 # ── AI recommendation wrappers ────────────────────────────────────────────────
 _BEER_SCHEMA = ('{"name":"Beer Name","brand":"Brand Name","calories":"150","abv":"5.5%","ibu":"45",'
                 '"taste":"Crisp and citrusy","food_pairing":"Grilled chicken, tacos",'
-                '"description":"A crisp beer","price_range":"$$","where_to_buy":"Total Wine, BevMo",'
-                '"google_rating":"4.3","review_count":"2800"}')
+                '"description":"A crisp beer","price_range":"$$","where_to_buy":"Total Wine, BevMo"}')
 
 def _call_ai(prompt):
     if not processing_model:
@@ -902,66 +790,48 @@ def _call_ai(prompt):
     except Exception as e:
         st.error(f"⚠️ {e}"); return []
 
-def ai_mood_recs(mood, day, taste):
+def ai_mood_recs(zipcode, mood, day, taste):
     return _call_ai(
-        f"Act as a beer sommelier. Suggest the top 3 beers ranked by Google review ratings based on:\n"
-        f"Mood:{mood[:35]}, Day:{day[:35]}, Taste:{taste[:35]}.\n"
-        f"Select beers with the highest Google review ratings (4.0+) and most reviews. "
-        f"Sort results from highest to lowest rating.\n"
+        f"Act as a beer sommelier. Suggest 3 beers based on:\n"
+        f"Zip:{zipcode[:5]}, Mood:{mood[:35]}, Day:{day[:35]}, Taste:{taste[:35]}.\n"
         f"Return ONLY a JSON array of 3: [{_BEER_SCHEMA}]\nNo markdown.")
 
-def ai_brand_recs(query):
+def ai_brand_recs(zipcode, query):
     schema = _BEER_SCHEMA.rstrip("}") + ',"available_locally":true}'
     return _call_ai(
-        f'Act as a beer sommelier. User wants "{query}".\n'
-        f"Return the top 3 options ranked by Google review ratings (highest first). "
-        f"Include google_rating and review_count.\n"
+        f'Act as a beer sommelier. User wants "{query}" near {zipcode}.\n'
+        f"Return 3 options. Unavailable locally → available_locally:false.\n"
         f"Return ONLY a JSON array of 3: [{schema}]\nNo markdown.")
 
-def ai_na_recs():
+def ai_na_recs(zipcode):
     schema = _BEER_SCHEMA.replace('"5.5%"', '"0.0%"').replace('"150"', '"50"')
     return _call_ai(
-        f"Act as a beer sommelier. Suggest the top 3 non-alcoholic beers ranked by Google review ratings. "
-        f"Select those with the highest ratings (4.0+) and most reviews. Sort highest to lowest.\n"
+        f"Act as a beer sommelier. User wants non-alcoholic beers near {zipcode}.\n"
         f"Return ONLY a JSON array of 3: [{schema}]\nNo markdown.")
 
 # ── card rendering ────────────────────────────────────────────────────────────
 def beer_card_html(beer):
-    name              = beer.get("name", "Unknown")
-    brand             = beer.get("brand", "Craft Beer")
-    abv               = beer.get("abv", "?")
-    calories          = beer.get("calories", "?")
-    price_range       = beer.get("price_range", "$")
-    description       = beer.get("description", "")
-    where_to_buy      = beer.get("where_to_buy", "Check Local Stores")
-    ibu               = beer.get("ibu", "")
-    taste             = beer.get("taste", "")
-    food_pairing      = beer.get("food_pairing", "")
+    name             = beer.get("name", "Unknown")
+    brand            = beer.get("brand", "Craft Beer")
+    abv              = beer.get("abv", "?")
+    calories         = beer.get("calories", "?")
+    price_range      = beer.get("price_range", "$")
+    description      = beer.get("description", "")
+    where_to_buy     = beer.get("where_to_buy", "Check Local Stores")
+    ibu              = beer.get("ibu", "")
+    taste            = beer.get("taste", "")
+    food_pairing     = beer.get("food_pairing", "")
     available_locally = beer.get("available_locally", True)
-    google_rating     = beer.get("google_rating", "")
-    review_count      = beer.get("review_count", "")
 
     cls    = "beer-card" + ("" if available_locally else " unavailable")
     badge  = "" if available_locally else '<span class="unavailable-badge">* Not near you</span>'
-
-    # Rating badge
-    rating_html = ""
-    if google_rating:
-        stars = "★" * round(float(str(google_rating).replace(",", ".")))
-        count_str = f" · {review_count} reviews" if review_count else ""
-        rating_html = (f'<div style="text-align:center!important;margin-bottom:10px;">'
-                       f'<span class="beer-rating-badge">⭐ {google_rating} {stars}{count_str} on Google</span>'
-                       f'</div>')
-
     extras = ""
     if ibu:         extras += f'<div class="beer-detail-row"><div class="beer-detail-label">IBU — Bitterness</div><div class="beer-detail-value">{ibu}</div></div>'
     if taste:       extras += f'<div class="beer-detail-row"><div class="beer-detail-label">Taste Profile</div><div class="beer-detail-value">{taste}</div></div>'
     if food_pairing:extras += f'<div class="beer-detail-row"><div class="beer-detail-label">Food Pairing</div><div class="beer-detail-value">{food_pairing}</div></div>'
-
     return (
         f'<div class="{cls}">{badge}'
         f'<div class="beer-title">{name}</div><div class="beer-brand">{brand}</div>'
-        f'{rating_html}'
         f'<div class="beer-metrics">'
         f'<div class="metric-box"><div class="metric-value">{abv}</div><div class="metric-label">ABV</div></div>'
         f'<div class="metric-box"><div class="metric-value">{calories}</div><div class="metric-label">Cals</div></div>'
@@ -974,8 +844,6 @@ def beer_card_html(beer):
     )
 
 def render_bar(bar):
-    if not bar.get("lat") or not bar.get("lng"):
-        return
     maps = (f"https://www.google.com/maps/search/?api=1"
             f"&query={bar['lat']},{bar['lng']}&query_place_id={bar['place_id']}")
     st.markdown(
@@ -986,109 +854,45 @@ def render_bar(bar):
         f'</div>', unsafe_allow_html=True)
     st.markdown(f"[📍 Open in Google Maps]({maps})")
 
-def render_beer_with_zip_search(beer, beer_idx, search_type):
-    """
-    Renders a beer card with an optional zipcode search panel below it.
-    The zip search shows availability + bars within 10 miles.
-    """
-    ukey = f"beer_{beer_idx}_{beer.get('name','?').replace(' ','_')}"
-
+def render_beer_with_bars(beer, zipcode, key):
     if beer.get("image_bytes"):
         st.image(beer["image_bytes"], use_container_width=True)
     st.markdown(beer_card_html(beer), unsafe_allow_html=True)
-
-    # ── Saved button ──
-    saved = any(b["name"] == beer["name"] for b in st.session_state.saved_beers)
-    if not saved:
-        if st.button("SAVE", key=f"save_{ukey}", use_container_width=True):
-            st.session_state.saved_beers.append(beer)
-            log_beer_selection(
-                st.session_state.user_data.get("name", "User"),
-                beer.get("name","?"), beer.get("brand","?"),
-                st.session_state.user_data.get("search_type","unknown"),
-                st.session_state.user_data.get("mood"))
-            st.rerun()
-    else:
-        st.button("SAVED ✓", disabled=True, key=f"saved_{ukey}", use_container_width=True)
-
-    # ── Zip search panel ──────────────────────────────────────────────────────
-    st.markdown('<div class="zip-search-panel">', unsafe_allow_html=True)
-    st.markdown(f'<div class="zip-search-title">📍 Check availability near you</div>', unsafe_allow_html=True)
-    st.markdown('</div>', unsafe_allow_html=True)
-
-    zip_key = f"zip_input_{ukey}"
-    search_key = f"zip_search_btn_{ukey}"
-
-    col_z, col_b = st.columns([3, 1])
-    with col_z:
-        entered_zip = st.text_input(
-            "Enter zipcode",
-            placeholder="e.g. 90210",
-            max_chars=5,
-            key=zip_key,
-            label_visibility="collapsed")
-    with col_b:
-        do_search = st.button("GO", key=search_key, use_container_width=True)
-
-    result_key = f"zip_result_{ukey}"
-    if do_search and entered_zip:
-        ok, clean_zip = validate_zipcode(entered_zip)
-        if not ok:
-            st.error(f"❌ {clean_zip}")
-        else:
-            city_n, state_n = city_state_from_zip(clean_zip)
-            loc_label = f"{city_n}, {state_n}" if city_n else clean_zip
-            st.session_state[result_key] = {"zip": clean_zip, "label": loc_label, "loaded": False}
-
-    # Show results if we have a stored zip for this beer
-    if result_key in st.session_state:
-        rdata = st.session_state[result_key]
-        z     = rdata["zip"]
-        label = rdata["label"]
-
-        st.markdown(
-            f'<p style="color:#ffd165;font-size:0.78rem;text-align:center!important;'
-            f'font-family:Space Grotesk,sans-serif;margin:6px 0 10px;">📍 Results near {label}</p>',
-            unsafe_allow_html=True)
-
-        lat, lng = zip_to_coords(z)
-        if not lat:
-            st.warning("⚠️ Could not geocode that zipcode.")
-        else:
-            # Availability / stores
-            with st.spinner("🔍 Checking availability…"):
-                avail = check_beer_availability_nearby(beer.get("name",""), beer.get("brand",""), z)
-
-            if avail:
-                st.markdown('<p style="color:#4ae176;font-size:0.82rem;text-align:center!important;'
-                            'margin-bottom:6px;">✅ Found nearby stores/venues:</p>', unsafe_allow_html=True)
-                for place in avail:
-                    render_bar(place)
+    with st.expander(f"🍻 Bars near you serving {beer.get('name')}"):
+        lat, lng = zip_to_coords(zipcode)
+        if lat and lng:
+            with st.spinner("🤖 AI agents researching bars…"):
+                bars = find_bars(lat, lng, beer.get("name"), beer.get("brand",""), zipcode)
+            if bars:
+                st.markdown(f'<p style="color:#ffd165;font-size:0.88rem;margin-bottom:12px;">'
+                            f'🎯 Bars serving {beer.get("name")} near you:</p>', unsafe_allow_html=True)
+                for bar in bars:
+                    render_bar(bar)
             else:
-                st.info("🔍 No specific availability found. Try a local Total Wine, BevMo, or craft beer shop.")
+                st.info("🤖 Couldn't find bars serving this beer nearby. Check 'Where to Buy' above.")
+        else:
+            st.warning("Unable to locate bars for this zipcode.")
 
-            # Bars serving this beer
-            with st.expander(f"🍻 Bars within 10 miles serving {beer.get('name', 'this beer')}"):
-                with st.spinner("🤖 AI agents finding bars…"):
-                    if search_type == "non_alcoholic":
-                        bars = find_na_venues_nearby(lat, lng, z)
-                    else:
-                        bars = find_bars_nearby(lat, lng, beer.get("name",""), beer.get("brand",""), z)
-                if bars:
-                    for bar in bars:
-                        render_bar(bar)
-                else:
-                    st.info("🤖 No bars found for this beer in the area. Check local craft beer pubs!")
-
-# ── voice input widget ────────────────────────────────────────────────────────
+# ── voice input widget — works on local + HF Spaces ──────────────────────────
 def render_voice_widget():
+    """
+    Returns (audio_bytes, mime_type) or (None, None).
+    Priority:
+      1. streamlit-mic-recorder  (best for HF Spaces / all browsers)
+      2. st.audio_input          (Streamlit ≥ 1.43, works on Safari/HTTPS)
+      3. st.file_uploader        (universal fallback)
+    """
     audio_bytes = None
     mime_type   = "audio/wav"
 
     if MIC_RECORDER_AVAILABLE:
         st.markdown('<p class="gold-text" style="font-size:0.78rem;margin-bottom:4px;">🎤 Record your search</p>',
                     unsafe_allow_html=True)
-        audio = mic_recorder(start_prompt="⏺ Record", stop_prompt="⏹ Stop", key="mic_rec")
+        audio = mic_recorder(
+            start_prompt="⏺ Record",
+            stop_prompt="⏹ Stop",
+            key="mic_rec",
+        )
         if audio and audio.get("bytes"):
             audio_bytes = audio["bytes"]
             mime_type   = "audio/wav"
@@ -1102,79 +906,30 @@ def render_voice_widget():
         except Exception as e:
             debug_print(f"audio_input error: {e}", "WARNING")
 
+    # Always show file-upload fallback alongside mic widget
     if audio_bytes is None:
         up = st.file_uploader(
             "📎 Or upload audio (WAV · MP3 · M4A · OGG · WEBM)",
-            type=["wav","mp3","m4a","ogg","webm"], key="voice_uploader")
+            type=["wav","mp3","m4a","ogg","webm"],
+            key="voice_uploader",
+        )
         if up:
             audio_bytes = up.read()
             mime_type   = up.type or "audio/wav"
 
     return audio_bytes, mime_type
 
-# ── Refine search bar (shown at top of results) ───────────────────────────────
-def render_refine_search(search_type, label="🔄 Search for a different beer"):
-    """
-    Renders a refine-search input at the top of the results page.
-    When submitted, clears current results and re-runs the search.
-    """
-    st.markdown(f'<div class="refine-bar"><div class="refine-bar-label">{label}</div></div>',
-                unsafe_allow_html=True)
-
-    ud = st.session_state.user_data
-
-    if search_type == "non_alcoholic":
-        # Non-alcoholic just has a re-run button since there's no query
-        if st.button("🔄 REFRESH NON-ALCOHOLIC PICKS", key="refine_na_btn", use_container_width=True):
-            with st.spinner("Refreshing non-alcoholic recommendations…"):
-                beers = ai_na_recs()
-            st.session_state.rec_beers = beers
-            st.rerun()
-
-    elif search_type == "mood":
-        with st.form("refine_mood_form"):
-            new_mood = st.text_input(
-                "Change vibe",
-                value=ud.get("mood", ""),
-                placeholder="Relaxed, Hyped, Tired…",
-                max_chars=35)
-            new_day   = st.text_input("Day?", value=ud.get("day",""), placeholder="Easy day, celebratory…", max_chars=35)
-            new_taste = st.text_input("Taste?", value=ud.get("taste",""), placeholder="Hoppy, Sweet, Dark…", max_chars=35)
-            if st.form_submit_button("🔄 REFRESH"):
-                if new_mood:
-                    ud["mood"]  = new_mood
-                    ud["day"]   = new_day or ud.get("day", "")
-                    ud["taste"] = new_taste or ud.get("taste", "")
-                    with st.spinner("Finding new recommendations…"):
-                        beers = ai_mood_recs(ud["mood"], ud["day"], ud["taste"])
-                    st.session_state.rec_beers = beers
-                    st.rerun()
-
-    else:  # brand / specific beer / voice
-        with st.form("refine_brand_form"):
-            new_query = st.text_input(
-                "Search a different beer",
-                value=ud.get("brand_query", "") or "",
-                placeholder="Guinness, West Coast IPA…",
-                max_chars=35)
-            if st.form_submit_button("🔄 FIND IT"):
-                if new_query.strip():
-                    ud["brand_query"] = new_query.strip()
-                    with st.spinner(f"Searching for {new_query}…"):
-                        beers = ai_brand_recs(new_query.strip())
-                    st.session_state.rec_beers = beers
-                    st.rerun()
-
 # ── session state ─────────────────────────────────────────────────────────────
 def init_state():
     defaults = {
         "step": 0,
-        "user_data": {"name":"","mood":"","brand_query":None,
+        "user_data": {"name":"","zipcode":"","mood":"","brand_query":None,
                       "day":"","taste":"","search_type":None},
         "rec_beers":          [],
         "saved_beers":        [],
         "show_debug":         False,
         "feedback_submitted": False,
+        "zip_location_label": "",   # e.g. "Santa Monica, CA"
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -1198,13 +953,43 @@ def main():
     # ── nav row ───────────────────────────────────────────────────────────────
     if step > 0 and step != 5:
         if step == 3:
-            cb, cl = st.columns([1, 1])
+            cb, cz, cl = st.columns([1, 3, 1])
             with cb:
                 if st.button("←", key="back_btn"):
                     st.session_state.step = 1
                     st.session_state.rec_beers = []
                     ud.update({"brand_query":None,"mood":"","search_type":None})
                     st.rerun()
+            with cz:
+                nz = st.text_input("zip", placeholder="Change zip", max_chars=5,
+                                   key="zip_change_field", label_visibility="collapsed")
+                cur_label = st.session_state.get("zip_location_label", "")
+                if cur_label:
+                    st.markdown(
+                        f'<p style="color:#ffd165;font-size:0.65rem;text-align:center;'
+                        f'font-family:Space Grotesk,sans-serif;letter-spacing:0.06em;'
+                        f'margin:2px 0 0 0;">&#128205; {cur_label}</p>',
+                        unsafe_allow_html=True)
+                if nz and len(nz.strip()) == 5:
+                    ok, clean = validate_zipcode(nz)
+                    if ok and clean != ud["zipcode"]:
+                        city_n, state_n = city_state_from_zip(clean)
+                        lbl = (f"{city_n}, {state_n}" if city_n and state_n
+                               else city_n if city_n else clean)
+                        st.session_state.zip_location_label = lbl
+                        ud["zipcode"] = clean
+                        st.session_state.rec_beers = []
+                        stype = ud.get("search_type")
+                        with st.spinner(f"Searching in {lbl}..."):
+                            if stype == "non_alcoholic":
+                                beers = ai_na_recs(clean)
+                            elif ud.get("brand_query"):
+                                beers = ai_brand_recs(clean, ud["brand_query"])
+                            else:
+                                beers = ai_mood_recs(clean, ud.get("mood",""),
+                                                     ud.get("day",""), ud.get("taste",""))
+                        st.session_state.rec_beers = beers
+                        st.rerun()
             with cl:
                 if st.session_state.saved_beers:
                     if st.button("My List", key="star_btn"):
@@ -1229,7 +1014,7 @@ def main():
                         st.session_state.step = 4; st.rerun()
 
     # =========================================================================
-    # STEP 0 — Login (name only, no zipcode)
+    # STEP 0 — Login
     # =========================================================================
     if st.session_state.step == 0:
         st.markdown('<div style="height:40px;"></div>', unsafe_allow_html=True)
@@ -1242,13 +1027,24 @@ def main():
 
         with st.form("login_form"):
             name_val = st.text_input("Your name? *", placeholder="Enter your name", max_chars=35)
+            zip_val  = st.text_input("Where ya at? *", placeholder="e.g. 90210", max_chars=5)
             if st.form_submit_button("ENTER"):
                 if not name_val.strip():
                     st.error("❌ Name is required")
                 else:
-                    ud["name"] = name_val.strip()[:35]
-                    st.session_state.step = 1
-                    st.rerun()
+                    ok, result = validate_zipcode(zip_val)
+                    if not ok:
+                        st.error(f"❌ {result}")
+                    else:
+                        ud["name"]    = name_val.strip()[:35]
+                        ud["zipcode"] = result
+                        # Pre-populate location label for the results screen
+                        city_n, state_n = city_state_from_zip(result)
+                        lbl = (f"{city_n}, {state_n}" if city_n and state_n
+                               else city_n if city_n else result)
+                        st.session_state.zip_location_label = lbl
+                        st.session_state.step = 1
+                        st.rerun()
 
         render_bottom_nav("home")
         render_footer()
@@ -1257,7 +1053,7 @@ def main():
     # STEP 1 — Search type
     # =========================================================================
     elif st.session_state.step == 1:
-        greet, time_str = get_greeting()
+        greet, time_str = get_greeting(ud["zipcode"])   # live, no cache
         name = ud.get("name", "Friend")
 
         gif_path = os.path.join(os.path.dirname(__file__), "static", "images", "beer.gif.gif")
@@ -1297,7 +1093,7 @@ def main():
     # STEP 1.5 — Input collection
     # =========================================================================
     elif st.session_state.step == 1.5:
-        greet, _ = get_greeting()
+        greet, _ = get_greeting(ud["zipcode"])
         st.markdown(f'<div class="big-greeting">{greet}, {ud.get("name","Friend")}.</div>',
                     unsafe_allow_html=True)
 
@@ -1315,12 +1111,13 @@ def main():
                     else:
                         st.error("Please describe your mood")
 
-        # ── SPECIFIC BEER ─────────────────────────────────────────────────────
+        # ── SPECIFIC BEER — text box + mic below, no toggle buttons ──────────
         elif stype == "brand":
             st.markdown('<div style="height:12px;"></div>', unsafe_allow_html=True)
             st.markdown('<p class="gold-text" style="font-size:0.9rem;margin-bottom:4px;">'
                         'Type your beer or use the mic 🎤 below</p>', unsafe_allow_html=True)
 
+            # Text search form
             with st.form("brand_form"):
                 brand_query = st.text_input(
                     "Enter your beer of choice",
@@ -1332,6 +1129,7 @@ def main():
                     else:
                         st.error("Please enter a beer name or style")
 
+            # Voice input — always visible below text box, no toggle
             st.markdown('<div style="height:6px;"></div>', unsafe_allow_html=True)
             st.markdown('<p style="color:#9b8f79;font-size:0.75rem;margin:2px 0 6px;">'
                         '— or record your search —</p>', unsafe_allow_html=True)
@@ -1352,7 +1150,7 @@ def main():
                         f'<div class="voice-heard-text">"{transcription}"</div></div>',
                         unsafe_allow_html=True)
                     with st.spinner(f"Searching for {transcription}…"):
-                        beers = ai_brand_recs(transcription)
+                        beers = ai_brand_recs(ud["zipcode"], transcription)
                     ud.update({"brand_query": transcription, "search_type": "brand",
                                "mood": None, "day": "Voice Search", "taste": "Voice Search"})
                     st.session_state.rec_beers = beers
@@ -1370,15 +1168,15 @@ def main():
 
         if stype == "non_alcoholic":
             ud.update({"day":"Non-Alcoholic Search","taste":"Non-Alcoholic Search"})
-            with st.spinner("Finding top-rated non-alcoholic beers…"):
-                beers = ai_na_recs()
+            with st.spinner("Finding non-alcoholic beers…"):
+                beers = ai_na_recs(ud["zipcode"])
             st.session_state.rec_beers = beers
             st.session_state.step = 3; st.rerun()
 
         elif ud.get("brand_query"):
             ud.update({"day":"Specific Search","taste":"Specific Search"})
             with st.spinner(f"Searching for {ud['brand_query']}…"):
-                beers = ai_brand_recs(ud["brand_query"])
+                beers = ai_brand_recs(ud["zipcode"], ud["brand_query"])
             st.session_state.rec_beers = beers
             st.session_state.step = 3; st.rerun()
 
@@ -1394,8 +1192,8 @@ def main():
                         st.error("Please fill in both fields")
                     else:
                         ud.update({"day":day[:35],"taste":taste[:35]})
-                        with st.spinner("Pouring top-rated recommendations…"):
-                            beers = ai_mood_recs(ud["mood"], day[:35], taste[:35])
+                        with st.spinner("Pouring recommendations…"):
+                            beers = ai_mood_recs(ud["zipcode"], ud["mood"], day[:35], taste[:35])
                         st.session_state.rec_beers = beers
                         st.session_state.step = 3; st.rerun()
             render_bottom_nav("search")
@@ -1405,17 +1203,7 @@ def main():
     # STEP 3 — Recommendations
     # =========================================================================
     elif st.session_state.step == 3:
-        stype = ud.get("search_type", "brand")
-
-        # ── Refine search at TOP ──────────────────────────────────────────────
-        render_refine_search(stype)
-
         st.markdown('<h3 class="gold-text">Top Picks For You</h3>', unsafe_allow_html=True)
-        st.markdown(
-            '<p style="color:#9b8f79;font-size:0.72rem;text-align:center!important;'
-            'font-family:Space Grotesk,sans-serif;margin-bottom:12px;">'
-            '⭐ Ranked by Google review ratings · Enter zipcode below each beer to check local availability</p>',
-            unsafe_allow_html=True)
 
         if not st.session_state.rec_beers:
             st.markdown(
@@ -1431,13 +1219,22 @@ def main():
             with c2:
                 if st.button("GO HOME", key="go_home_btn", use_container_width=True):
                     st.session_state.step = 0
-                    st.session_state.user_data = {"name": ud.get("name",""), "mood":"",
+                    st.session_state.user_data = {"name":"","zipcode":"","mood":"",
                                                    "brand_query":None,"day":"","taste":"","search_type":None}
                     st.session_state.rec_beers = []; st.rerun()
         else:
             for idx, beer in enumerate(st.session_state.rec_beers):
-                render_beer_with_zip_search(beer, idx, stype)
-                st.markdown('<hr style="border:none;border-top:1px solid rgba(255,209,101,0.07);margin:20px 0;">', unsafe_allow_html=True)
+                ukey  = f"rec_{idx}_{beer.get('name','?').replace(' ','_')}"
+                render_beer_with_bars(beer, ud["zipcode"], ukey)
+                saved = any(b["name"] == beer["name"] for b in st.session_state.saved_beers)
+                if not saved:
+                    if st.button("SAVE", key=f"save_{ukey}", use_container_width=True):
+                        st.session_state.saved_beers.append(beer)
+                        log_beer_selection(ud["name"], beer.get("name","?"), beer.get("brand","?"),
+                                           ud.get("search_type","unknown"), ud.get("mood"))
+                        st.rerun()
+                else:
+                    st.button("SAVED ✓", disabled=True, key=f"saved_{ukey}", use_container_width=True)
 
         render_bottom_nav("search")
         render_footer()
@@ -1455,10 +1252,10 @@ def main():
                 '</div>', unsafe_allow_html=True)
         else:
             for i, beer in enumerate(st.session_state.saved_beers):
-                render_beer_with_zip_search(beer, f"sv_{i}", ud.get("search_type","brand"))
-                if st.button("REMOVE", key=f"remove_sv_{i}", use_container_width=True):
+                ukey = f"saved_{i}_{beer.get('name','?').replace(' ','_')}"
+                render_beer_with_bars(beer, ud["zipcode"], ukey)
+                if st.button("REMOVE", key=f"remove_{ukey}", use_container_width=True):
                     st.session_state.saved_beers.pop(i); st.rerun()
-                st.markdown('<hr style="border:none;border-top:1px solid rgba(255,209,101,0.07);margin:16px 0;">', unsafe_allow_html=True)
         render_bottom_nav("saved")
         render_footer()
 
