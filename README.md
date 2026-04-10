@@ -10,9 +10,13 @@ pinned: false
 🍺 Beer Finder AI
 A sophisticated AI-powered beer recommendation system that uses multiple intelligent agents to help you discover your perfect brew and find where to drink it nearby.
 🆕 Latest Updates
-January 18, 2026
+April 4, 2026
 
-New Feature: Non-Alcoholic Beer Search - Discover high-quality non-alcoholic beer options with the same intelligent recommendation system
+New Feature: 
+Record voice to search beer
+Upload image to search beer
+Beer games
+Non-Alcoholic Beer Search - Discover high-quality non-alcoholic beer options with the same intelligent recommendation system
 Enhanced search options with three distinct pathways: Mood-Based, Specific Beer, and Non-Alcoholic
 Improved user interface with streamlined search selection
 
