@@ -15,6 +15,7 @@ try:
     import base64
     import io
     import sys
+    import secrets
     from huggingface_hub import HfApi, hf_hub_download
 except Exception as e:
     print("STARTUP ERROR:", e)
@@ -34,6 +35,13 @@ try:
     MIC_RECORDER_AVAILABLE = True
 except ImportError:
     MIC_RECORDER_AVAILABLE = False
+
+try:
+    import psycopg2
+    from psycopg2.extras import RealDictCursor
+    PSYCOPG2_AVAILABLE = True
+except ImportError:
+    PSYCOPG2_AVAILABLE = False
 
 st.set_page_config(
     page_title="Golden Draught",
@@ -68,6 +76,7 @@ GOOGLE_PLACES_API_KEY    = os.getenv("GOOGLE_PLACES_API_KEY")
 GOOGLE_GEOCODING_API_KEY = os.getenv("GOOGLE_GEOCODING_API_KEY") or GOOGLE_PLACES_API_KEY
 HF_TOKEN                 = os.getenv("HF_TOKEN")
 HF_DATASET_REPO          = "mashomashi/beer_data"
+DATABASE_URL             = os.getenv("DATABASE_URL")
 
 # ── debug ────────────────────────────────────────────────────────────────────
 def debug_print(msg, level="INFO"):
@@ -76,7 +85,59 @@ def debug_print(msg, level="INFO"):
     ts = datetime.datetime.now().strftime("%H:%M:%S")
     print(f"{c.get(level, c['INFO'])}[{level}] [{ts}] {msg}{c['RESET']}", file=sys.stderr)
 
-# ── logging / feedback ───────────────────────────────────────────────────────
+# ── PostgreSQL helpers ────────────────────────────────────────────────────────
+def get_db_connection():
+    """Return a psycopg2 connection using DATABASE_URL."""
+    if not PSYCOPG2_AVAILABLE:
+        debug_print("psycopg2 not installed", "ERROR")
+        return None
+    if not DATABASE_URL:
+        debug_print("DATABASE_URL not set", "ERROR")
+        return None
+    try:
+        conn = psycopg2.connect(DATABASE_URL)
+        return conn
+    except Exception as e:
+        debug_print(f"DB connect error: {e}", "ERROR")
+        return None
+
+def init_db():
+    """Create tables if they don't exist. Called once at startup."""
+    conn = get_db_connection()
+    if not conn:
+        return
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS feedback (
+                id           SERIAL PRIMARY KEY,
+                username     VARCHAR(100),
+                feedback_text TEXT NOT NULL,
+                created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS beer_lists (
+                id           SERIAL PRIMARY KEY,
+                share_token  VARCHAR(20) UNIQUE NOT NULL,
+                title        VARCHAR(200),
+                username     VARCHAR(100),
+                beers        JSONB NOT NULL,
+                created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        conn.commit()
+        cur.close()
+        debug_print("DB tables ready", "SUCCESS")
+    except Exception as e:
+        debug_print(f"init_db error: {e}", "ERROR")
+    finally:
+        conn.close()
+
+# Run once at module load
+init_db()
+
+# ── logging / feedback ────────────────────────────────────────────────────────
 def log_beer_selection(username, beer_name, brand, search_type, mood=None):
     if not HF_TOKEN:
         return
@@ -110,6 +171,28 @@ def log_beer_selection(username, beer_name, brand, search_type, mood=None):
 
 
 def save_feedback(username, feedback_text):
+    """
+    Save feedback to PostgreSQL (primary) with local file as fallback.
+    """
+    # ── Primary: PostgreSQL ──────────────────────────────────────────────────
+    conn = get_db_connection()
+    if conn:
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO feedback (username, feedback_text) VALUES (%s, %s)",
+                (username, feedback_text)
+            )
+            conn.commit()
+            cur.close()
+            debug_print(f"Feedback saved to DB for {username}", "SUCCESS")
+            return True
+        except Exception as e:
+            debug_print(f"DB feedback error, falling back: {e}", "WARNING")
+        finally:
+            conn.close()
+
+    # ── Fallback: HuggingFace ─────────────────────────────────────────────────
     ts      = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     content = (f"Feedback from: {username}\n"
                f"Date: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
@@ -130,6 +213,8 @@ def save_feedback(username, feedback_text):
                     os.remove(tmp)
         except Exception as e:
             debug_print(f"HF feedback failed, local fallback: {e}", "WARNING")
+
+    # ── Last resort: local file ───────────────────────────────────────────────
     try:
         os.makedirs(FEEDBACK_DIR, exist_ok=True)
         with open(os.path.join(FEEDBACK_DIR, f"{username}_{ts}.txt"), "w", encoding="utf-8") as f:
@@ -138,7 +223,80 @@ def save_feedback(username, feedback_text):
         debug_print(f"Local feedback failed: {e}", "ERROR")
     return True
 
-# ── Gemini init ──────────────────────────────────────────────────────────────
+
+# ── Beer list persistence ─────────────────────────────────────────────────────
+def save_beer_list(beers, username, title=None):
+    """
+    Save a list of beers to PostgreSQL and return the share token.
+    Returns (token, error_message).
+    """
+    conn = get_db_connection()
+    if not conn:
+        return None, "Database not available. Check DATABASE_URL."
+    token = secrets.token_urlsafe(8)
+    if not title:
+        title = f"{username}'s Beer List — {datetime.datetime.now().strftime('%b %d %Y')}"
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """INSERT INTO beer_lists (share_token, title, username, beers)
+               VALUES (%s, %s, %s, %s)""",
+            (token, title, username, json.dumps(beers))
+        )
+        conn.commit()
+        cur.close()
+        debug_print(f"Beer list saved with token {token}", "SUCCESS")
+        return token, None
+    except Exception as e:
+        debug_print(f"save_beer_list error: {e}", "ERROR")
+        return None, str(e)
+    finally:
+        conn.close()
+
+
+def get_beer_list(token):
+    """
+    Retrieve a saved beer list by share token.
+    Returns (title, beers_list, username, created_at) or None.
+    """
+    conn = get_db_connection()
+    if not conn:
+        return None
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT title, beers, username, created_at FROM beer_lists WHERE share_token = %s",
+            (token,)
+        )
+        row = cur.fetchone()
+        cur.close()
+        if row:
+            title, beers, username, created_at = row
+            if isinstance(beers, str):
+                beers = json.loads(beers)
+            return title, beers, username, created_at
+        return None
+    except Exception as e:
+        debug_print(f"get_beer_list error: {e}", "ERROR")
+        return None
+    finally:
+        conn.close()
+
+
+def format_list_as_text(beers, title, share_url):
+    """Format beer list as plain text suitable for SMS or email copy/paste."""
+    lines = [f"🍺 {title}", "=" * 40, ""]
+    for i, beer in enumerate(beers, 1):
+        lines.append(f"{i}. {beer.get('name', 'Unknown')} — {beer.get('brand', '')}")
+        lines.append(f"   Style/ABV: {beer.get('abv', 'N/A')} | Cals: {beer.get('calories', 'N/A')}")
+        lines.append(f"   {beer.get('description', '')}")
+        lines.append("")
+    lines.append(f"🔗 View full list: {share_url}")
+    lines.append("Shared via Golden Draught 🍺 beer.dimensionunlimited.com")
+    return "\n".join(lines)
+
+
+# ── Gemini init ───────────────────────────────────────────────────────────────
 @st.cache_resource(show_spinner=False)
 def initialize_gemini_model():
     if not GENAI_AVAILABLE:
@@ -162,7 +320,7 @@ def initialize_gemini_model():
 
 processing_model, gemini_error = initialize_gemini_model()
 
-# ── validation ───────────────────────────────────────────────────────────────
+# ── validation ────────────────────────────────────────────────────────────────
 def validate_zipcode(zipcode):
     if not zipcode:
         return False, "Please enter a zipcode"
@@ -173,7 +331,7 @@ def validate_zipcode(zipcode):
         return False, "Please enter a valid US zipcode"
     return True, clean
 
-# ── CSS ──────────────────────────────────────────────────────────────────────
+# ── CSS ───────────────────────────────────────────────────────────────────────
 @st.cache_data
 def get_mobile_css():
     return """
@@ -406,6 +564,26 @@ def get_mobile_css():
             color: var(--text-sub); line-height: 1.5; text-align: left !important;
         }
 
+        /* ── SHARE CARD ── */
+        .share-card {
+            background: linear-gradient(135deg, #121c2a, #16202e);
+            border: 1px solid rgba(255,209,101,0.3); border-radius: 20px;
+            padding: 20px; margin: 16px 0; text-align: center !important;
+        }
+        .share-url-box {
+            background: #0d1928; border: 1px solid rgba(255,209,101,0.4);
+            border-radius: 10px; padding: 12px; margin: 10px 0;
+            font-family: 'Space Grotesk', sans-serif; font-size: 0.78rem;
+            color: #ffd165; word-break: break-all; text-align: center !important;
+        }
+        .share-text-box {
+            background: #0d1928; border: 1px solid rgba(255,209,101,0.2);
+            border-radius: 10px; padding: 14px; margin: 10px 0;
+            font-family: monospace; font-size: 0.75rem; color: #d3c5ac;
+            text-align: left !important; white-space: pre-wrap; word-break: break-word;
+            max-height: 280px; overflow-y: auto;
+        }
+
         /* ── ZIP SEARCH PANEL ── */
         .zip-search-panel {
             background: var(--bg-card); border: 1px solid rgba(255,209,101,0.15);
@@ -496,7 +674,7 @@ def get_mobile_css():
 def inject_mobile_css():
     st.markdown(get_mobile_css(), unsafe_allow_html=True)
 
-# ── image helpers ─────────────────────────────────────────────────────────────
+# ── image helpers ──────────────────────────────────────────────────────────────
 @st.cache_data
 def load_image_as_base64(image_path):
     if os.path.exists(image_path):
@@ -545,6 +723,7 @@ def render_footer():
 def render_debug_panel():
     if not st.session_state.get("show_debug"):
         return
+    db_status = "✓" if (PSYCOPG2_AVAILABLE and DATABASE_URL) else "✗"
     st.markdown(f"""
     <div class="debug-panel">
         <strong>🔧 Debug</strong><br>
@@ -553,10 +732,11 @@ def render_debug_panel():
           Model: {'✓' if processing_model else '✗'}<br>
         • Error: {gemini_error or 'None'}<br>
         • Step: {st.session_state.step} | Search: {st.session_state.user_data.get('search_type','—')}<br>
-        • mic_recorder: {MIC_RECORDER_AVAILABLE} | audio_input: {hasattr(st,'audio_input')}
+        • mic_recorder: {MIC_RECORDER_AVAILABLE} | audio_input: {hasattr(st,'audio_input')}<br>
+        • DB: {db_status} | psycopg2: {PSYCOPG2_AVAILABLE}
     </div>""", unsafe_allow_html=True)
 
-# ── DST-aware greeting ───────────────────────────────────────────────────────
+# ── DST-aware greeting ─────────────────────────────────────────────────────────
 def get_greeting(zipcode="90210"):
     greeting = "Hello"
     time_str  = ""
@@ -592,7 +772,7 @@ def get_greeting(zipcode="90210"):
         debug_print(f"get_greeting: {e}", "WARNING")
     return greeting, time_str
 
-# ── geocoding / image ─────────────────────────────────────────────────────────
+# ── geocoding / image ──────────────────────────────────────────────────────────
 _BLOCKED_DOMAINS = (
     "lookaside.fbsbx.com","fbcdn.net","facebook.com","fb.com",
     "instagram.com","cdninstagram.com","twimg.com","twitter.com","x.com",
@@ -685,7 +865,7 @@ def city_from_zip(zipcode):
     city, _ = city_state_from_zip(zipcode)
     return city
 
-# ── bar-finding agents ────────────────────────────────────────────────────────
+# ── bar-finding agents ─────────────────────────────────────────────────────────
 @st.cache_data(ttl=3600)
 def web_search_bars(beer_name, brand, zipcode, city):
     if not GOOGLE_CSE_API_KEY or not GOOGLE_CSE_CX:
@@ -726,7 +906,7 @@ def ai_extract_bar_names(web_results, beer_name, city):
         debug_print(f"Bar extract: {e}", "ERROR")
         return []
 
-def verify_bars_places(bar_names, lat, lng, radius=16093):  # 10 miles in meters
+def verify_bars_places(bar_names, lat, lng, radius=16093):
     if not GOOGLE_PLACES_API_KEY or not bar_names:
         return []
     verified = []
@@ -766,7 +946,6 @@ def verify_bars_places(bar_names, lat, lng, radius=16093):  # 10 miles in meters
 
 @st.cache_data(ttl=3600)
 def find_bars_nearby(lat, lng, beer_name, brand, zipcode):
-    """Find bars within 10 miles selling the given beer."""
     city  = city_from_zip(zipcode)
     webs  = web_search_bars(beer_name, brand, zipcode, city)
     if not webs: return []
@@ -776,7 +955,6 @@ def find_bars_nearby(lat, lng, beer_name, brand, zipcode):
 
 @st.cache_data(ttl=3600)
 def find_na_venues_nearby(lat, lng, zipcode):
-    """Find venues within 10 miles carrying non-alcoholic beers."""
     if not GOOGLE_PLACES_API_KEY:
         return []
     city = city_from_zip(zipcode)
@@ -814,20 +992,15 @@ def find_na_venues_nearby(lat, lng, zipcode):
         names = [{"name": f"craft beer bar {city}"}, {"name": f"gastropub {city}"}]
     return verify_bars_places(names, lat, lng, radius=16093)
 
-# ── beer availability via Places ──────────────────────────────────────────────
 @st.cache_data(ttl=3600)
 def check_beer_availability_nearby(beer_name, brand, zipcode):
-    """
-    Search Google Places for stores/bars stocking this beer within 10 miles.
-    Returns list of place dicts.
-    """
     if not GOOGLE_PLACES_API_KEY:
         return []
     lat, lng = zip_to_coords(zipcode)
     if not lat:
         return []
     city = city_from_zip(zipcode) or zipcode
-    radius = 16093  # 10 miles
+    radius = 16093
 
     results = []
     queries = [
@@ -867,7 +1040,7 @@ def check_beer_availability_nearby(beer_name, brand, zipcode):
             break
     return results[:5]
 
-# ── beer image ────────────────────────────────────────────────────────────────
+# ── beer image ─────────────────────────────────────────────────────────────────
 def attach_image(beer):
     raw_url = beer.get("image")
     if not raw_url:
@@ -876,7 +1049,7 @@ def attach_image(beer):
     beer["image"]       = None
     return beer
 
-# ── audio transcription ───────────────────────────────────────────────────────
+# ── audio transcription ────────────────────────────────────────────────────────
 def transcribe_audio(audio_bytes, mime_type="audio/wav"):
     if not processing_model:
         return None, "AI model not available"
@@ -898,17 +1071,11 @@ def transcribe_audio(audio_bytes, mime_type="audio/wav"):
         debug_print(f"Transcribe error: {e}", "ERROR")
         return None, "Voice transcription unavailable. Please type your search below."
 
-# ── image-based beer search ───────────────────────────────────────────────────
+# ── image-based beer search ────────────────────────────────────────────────────
 def identify_beer_from_image(image_bytes):
-    """
-    Use Gemini vision to identify a beer from an uploaded image.
-    Returns (query_string, error_message).
-    query_string is None if the image is not a beer or not clear enough.
-    """
     if not processing_model:
         return None, "AI model not available"
     try:
-        # Resize / compress if PIL available
         if _PIL_AVAILABLE:
             img = _PILImage.open(io.BytesIO(image_bytes))
             img.thumbnail((800, 800), _PILImage.LANCZOS)
@@ -942,12 +1109,12 @@ def identify_beer_from_image(image_bytes):
             query = result.replace("BEER_FOUND:", "").strip()
             return query, None
         else:
-            return None, None  # NOT_BEER — caller shows the sorry message
+            return None, None
     except Exception as e:
         debug_print(f"Image identify error: {e}", "ERROR")
         return None, "Image analysis failed. Please type your search instead."
 
-# ── JSON parse ────────────────────────────────────────────────────────────────
+# ── JSON parse ─────────────────────────────────────────────────────────────────
 def parse_beer_json(text):
     text = text.strip()
     if "```json" in text: text = text.split("```json")[1].split("```")[0].strip()
@@ -956,7 +1123,7 @@ def parse_beer_json(text):
     if i > 0: text = text[i:]
     return json.loads(text)
 
-# ── AI recommendation wrappers ────────────────────────────────────────────────
+# ── AI recommendation wrappers ─────────────────────────────────────────────────
 _BEER_SCHEMA = ('{"name":"Beer Name","brand":"Brand Name","calories":"150","abv":"5.5%","ibu":"45",'
                 '"taste":"Crisp and citrusy","food_pairing":"Grilled chicken, tacos",'
                 '"description":"A crisp beer","price_range":"$$","where_to_buy":"Total Wine, BevMo",'
@@ -977,7 +1144,6 @@ def _call_ai(prompt):
     except Exception as e:
         st.error(f"⚠️ {e}"); return []
 
-# ── CHANGE 1: Up to 10 beers, do not fabricate if fewer exist ──────────────
 def ai_mood_recs(mood, day, taste):
     return _call_ai(
         f"Act as a beer sommelier. Suggest up to 10 beers ranked by Google review ratings based on:\n"
@@ -1005,7 +1171,6 @@ def ai_na_recs():
         f"Return ONLY a JSON array: [{schema}]\nNo markdown.")
 
 def ai_image_rec(query):
-    """Return exactly 1 beer matching the image-identified query. No extras."""
     schema = _BEER_SCHEMA.rstrip("}") + ',"available_locally":true}'
     return _call_ai(
         f'Act as a beer sommelier. The user uploaded a photo and it was identified as: "{query}".\n'
@@ -1013,7 +1178,7 @@ def ai_image_rec(query):
         f"Return exactly 1 result — the beer that matches the image.\n"
         f"Return ONLY a JSON array with 1 item: [{schema}]\nNo markdown.")
 
-# ── card rendering ────────────────────────────────────────────────────────────
+# ── card rendering ─────────────────────────────────────────────────────────────
 def beer_card_html(beer):
     name              = beer.get("name", "Unknown")
     brand             = beer.get("brand", "Craft Beer")
@@ -1032,7 +1197,6 @@ def beer_card_html(beer):
     cls    = "beer-card" + ("" if available_locally else " unavailable")
     badge  = "" if available_locally else '<span class="unavailable-badge">* Not near you</span>'
 
-    # Rating badge
     rating_html = ""
     if google_rating:
         stars = "★" * round(float(str(google_rating).replace(",", ".")))
@@ -1042,9 +1206,9 @@ def beer_card_html(beer):
                        f'</div>')
 
     extras = ""
-    if ibu:         extras += f'<div class="beer-detail-row"><div class="beer-detail-label">IBU — Bitterness</div><div class="beer-detail-value">{ibu}</div></div>'
-    if taste:       extras += f'<div class="beer-detail-row"><div class="beer-detail-label">Taste Profile</div><div class="beer-detail-value">{taste}</div></div>'
-    if food_pairing:extras += f'<div class="beer-detail-row"><div class="beer-detail-label">Food Pairing</div><div class="beer-detail-value">{food_pairing}</div></div>'
+    if ibu:          extras += f'<div class="beer-detail-row"><div class="beer-detail-label">IBU — Bitterness</div><div class="beer-detail-value">{ibu}</div></div>'
+    if taste:        extras += f'<div class="beer-detail-row"><div class="beer-detail-label">Taste Profile</div><div class="beer-detail-value">{taste}</div></div>'
+    if food_pairing: extras += f'<div class="beer-detail-row"><div class="beer-detail-label">Food Pairing</div><div class="beer-detail-value">{food_pairing}</div></div>'
 
     return (
         f'<div class="{cls}">{badge}'
@@ -1081,7 +1245,7 @@ def render_beer_with_zip_search(beer, beer_idx, search_type):
         st.image(beer["image_bytes"], use_container_width=True)
     st.markdown(beer_card_html(beer), unsafe_allow_html=True)
 
-    # ── Saved button ──
+    # ── Save button ────────────────────────────────────────────────────────────
     saved = any(b["name"] == beer["name"] for b in st.session_state.saved_beers)
     if not saved:
         if st.button("SAVE", key=f"save_{ukey}", use_container_width=True):
@@ -1095,12 +1259,12 @@ def render_beer_with_zip_search(beer, beer_idx, search_type):
     else:
         st.button("SAVED ✓", disabled=True, key=f"saved_{ukey}", use_container_width=True)
 
-    # ── Zip search panel ──────────────────────────────────────────────────────
+    # ── Zip search panel ───────────────────────────────────────────────────────
     st.markdown('<div class="zip-search-panel">', unsafe_allow_html=True)
     st.markdown(f'<div class="zip-search-title">📍 Check availability near you</div>', unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
-    zip_key = f"zip_input_{ukey}"
+    zip_key    = f"zip_input_{ukey}"
     search_key = f"zip_search_btn_{ukey}"
 
     col_z, col_b = st.columns([3, 1])
@@ -1161,8 +1325,163 @@ def render_beer_with_zip_search(beer, beer_idx, search_type):
                 else:
                     st.info("🤖 No bars found for this beer in the area. Check local craft beer pubs!")
 
-# ── voice input widget ────────────────────────────────────────────────────────
-# CHANGE 3: Removed file upload option — only mic recorder or built-in audio_input
+# ── Shareable list page ────────────────────────────────────────────────────────
+def render_shared_list_page(token):
+    """
+    Renders a full-page view of a shared beer list accessible via ?list=TOKEN.
+    This page is publicly viewable — no login required.
+    """
+    inject_mobile_css()
+    render_app_bar()
+
+    result = get_beer_list(token)
+    if not result:
+        st.markdown(
+            '<div style="background:#121c2a;padding:40px;border-radius:16px;margin:60px 0;text-align:center;">'
+            '<p style="color:#ffb4ab;font-size:1.1rem;">🍺 List not found or has expired.</p>'
+            '<p style="color:#9b8f79;font-size:0.85rem;margin-top:8px;">The share link may be invalid.</p>'
+            '</div>', unsafe_allow_html=True)
+        if st.button("GO TO GOLDEN DRAUGHT", use_container_width=True):
+            st.query_params.clear()
+            st.rerun()
+        return
+
+    title, beers, username, created_at = result
+    share_url = f"https://beer.dimensionunlimited.com/?list={token}"
+    plain_text = format_list_as_text(beers, title, share_url)
+
+    # Header
+    st.markdown(f'<div class="big-greeting">🍺 Beer List</div>', unsafe_allow_html=True)
+    st.markdown(
+        f'<p style="color:#9b8f79;font-size:0.78rem;text-align:center!important;'
+        f'font-family:Space Grotesk,sans-serif;margin-bottom:4px;">'
+        f'Curated by {username} · {created_at.strftime("%b %d, %Y") if hasattr(created_at, "strftime") else created_at}'
+        f'</p>', unsafe_allow_html=True)
+    st.markdown(f'<p class="gold-text" style="font-size:0.9rem;">{title}</p>', unsafe_allow_html=True)
+
+    st.markdown('<div style="height:16px;"></div>', unsafe_allow_html=True)
+
+    # Beer cards (display-only, no zip search on shared view)
+    for beer in beers:
+        st.markdown(beer_card_html(beer), unsafe_allow_html=True)
+        st.markdown('<div style="height:8px;"></div>', unsafe_allow_html=True)
+
+    # Share section
+    st.markdown('<div style="height:20px;"></div>', unsafe_allow_html=True)
+    st.markdown(
+        '<p style="color:#ffd165;font-size:0.8rem;font-family:Space Grotesk,sans-serif;'
+        'text-transform:uppercase;letter-spacing:0.1em;text-align:center!important;margin-bottom:8px;">'
+        '📤 Share this list</p>', unsafe_allow_html=True)
+
+    st.markdown(
+        f'<div class="share-card">'
+        f'<p style="color:#9b8f79;font-size:0.72rem;font-family:Space Grotesk,sans-serif;'
+        f'text-transform:uppercase;letter-spacing:0.1em;margin-bottom:6px;">🔗 Shareable URL</p>'
+        f'<div class="share-url-box">{share_url}</div>'
+        f'</div>', unsafe_allow_html=True)
+
+    st.markdown(
+        '<p style="color:#9b8f79;font-size:0.72rem;font-family:Space Grotesk,sans-serif;'
+        'text-transform:uppercase;letter-spacing:0.1em;text-align:center!important;margin:12px 0 6px;">'
+        '📋 Copy text for SMS or Email</p>', unsafe_allow_html=True)
+
+    st.code(plain_text, language=None)
+
+    st.markdown(
+        '<div style="height:20px;"></div>'
+        '<p style="color:#9b8f79;font-size:0.72rem;text-align:center!important;">'
+        'Tap & hold the text above to select all → Copy → Paste into any message or email.</p>',
+        unsafe_allow_html=True)
+
+    if st.button("🍺 DISCOVER MORE BEERS", use_container_width=True):
+        st.query_params.clear()
+        st.rerun()
+
+    st.markdown('<div class="footer">© 2026 Dimension Unlimited. Drink responsibly.</div>',
+                unsafe_allow_html=True)
+
+
+# ── Render saved list share panel (Step 4) ─────────────────────────────────────
+def render_share_panel(beers, username):
+    """
+    Shown inside Step 4 (My Saved Brews) after the beer list.
+    Lets the user save the list to DB and get a shareable URL.
+    """
+    st.markdown('<div style="height:12px;"></div>', unsafe_allow_html=True)
+    st.markdown(
+        '<p style="color:#ffd165;font-size:0.8rem;font-family:Space Grotesk,sans-serif;'
+        'text-transform:uppercase;letter-spacing:0.1em;text-align:center!important;margin-bottom:8px;">'
+        '📤 Share Your Beer List</p>', unsafe_allow_html=True)
+
+    # If already saved this session, show the existing token
+    existing_token = st.session_state.get("shared_list_token")
+
+    if existing_token:
+        share_url  = f"https://beer.dimensionunlimited.com/?list={existing_token}"
+        plain_text = format_list_as_text(
+            beers,
+            st.session_state.get("shared_list_title", f"{username}'s Beer List"),
+            share_url
+        )
+        st.markdown(
+            f'<div class="share-card">'
+            f'<p style="color:#4ae176;font-size:0.85rem;font-weight:700;margin-bottom:10px;">'
+            f'✅ Your list is live!</p>'
+            f'<p style="color:#9b8f79;font-size:0.72rem;font-family:Space Grotesk,sans-serif;'
+            f'text-transform:uppercase;letter-spacing:0.1em;margin-bottom:6px;">🔗 Shareable URL</p>'
+            f'<div class="share-url-box">{share_url}</div>'
+            f'<p style="color:#9b8f79;font-size:0.72rem;margin-top:8px;">'
+            f'Copy the URL above and paste it into any text message or email.</p>'
+            f'</div>', unsafe_allow_html=True)
+
+        st.markdown(
+            '<p style="color:#9b8f79;font-size:0.72rem;font-family:Space Grotesk,sans-serif;'
+            'text-transform:uppercase;letter-spacing:0.1em;text-align:center!important;margin:12px 0 6px;">'
+            '📋 Ready-to-paste text</p>', unsafe_allow_html=True)
+
+        st.code(plain_text, language=None)
+
+        st.markdown(
+            '<p style="color:#9b8f79;font-size:0.7rem;text-align:center!important;margin-top:6px;">'
+            'Tap & hold to select → Copy → Paste into Messages or Email.</p>',
+            unsafe_allow_html=True)
+
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("🔄 GENERATE NEW LINK", key="regen_share_btn", use_container_width=True):
+                st.session_state.shared_list_token = None
+                st.session_state.shared_list_title = None
+                st.rerun()
+        with col2:
+            if st.button("👁 VIEW SHARE PAGE", key="view_share_btn", use_container_width=True):
+                st.markdown(f'<meta http-equiv="refresh" content="0; url={share_url}">',
+                            unsafe_allow_html=True)
+
+    else:
+        # Show generate button
+        list_title = st.text_input(
+            "List title (optional)",
+            placeholder=f"{username}'s Golden Draught Picks",
+            key="share_list_title_input",
+            max_chars=80)
+
+        if st.button("💾 SAVE & GET SHAREABLE LINK", key="gen_share_btn", use_container_width=True):
+            if not beers:
+                st.error("Add some beers to your list first!")
+            else:
+                title = list_title.strip() or f"{username}'s Beer List — {datetime.datetime.now().strftime('%b %d %Y')}"
+                with st.spinner("Saving your list…"):
+                    token, err = save_beer_list(beers, username, title)
+                if err:
+                    st.error(f"❌ Could not save list: {err}")
+                    st.info("Make sure DATABASE_URL is set in your Railway variables.")
+                else:
+                    st.session_state.shared_list_token = token
+                    st.session_state.shared_list_title = title
+                    st.rerun()
+
+
+# ── voice input widget ─────────────────────────────────────────────────────────
 def render_voice_widget():
     audio_bytes = None
     mime_type   = "audio/wav"
@@ -1202,11 +1521,7 @@ def render_refine_search(search_type, label="🔄 Search for a different beer"):
 
     elif search_type == "mood":
         with st.form("refine_mood_form"):
-            new_mood = st.text_input(
-                "Change vibe",
-                value=ud.get("mood", ""),
-                placeholder="Relaxed, Hyped, Tired…",
-                max_chars=35)
+            new_mood  = st.text_input("Change vibe", value=ud.get("mood",""), placeholder="Relaxed, Hyped, Tired…", max_chars=35)
             new_day   = st.text_input("Day?", value=ud.get("day",""), placeholder="Easy day, celebratory…", max_chars=35)
             new_taste = st.text_input("Taste?", value=ud.get("taste",""), placeholder="Hoppy, Sweet, Dark…", max_chars=35)
             if st.form_submit_button("🔄 REFRESH"):
@@ -1219,7 +1534,7 @@ def render_refine_search(search_type, label="🔄 Search for a different beer"):
                     st.session_state.rec_beers = beers
                     st.rerun()
 
-    else:  # brand / specific beer / voice / image
+    else:
         with st.form("refine_brand_form"):
             new_query = st.text_input(
                 "Search a different beer",
@@ -1234,16 +1549,14 @@ def render_refine_search(search_type, label="🔄 Search for a different beer"):
                     st.session_state.rec_beers = beers
                     st.rerun()
 
-# ── CHANGE 2: Beer Games ──────────────────────────────────────────────────────
+# ── Beer Games ─────────────────────────────────────────────────────────────────
 def render_beer_games():
-    """Renders the Beer Games hub and the active game."""
     ud   = st.session_state.user_data
     name = ud.get("name", "Player")
 
     gstate = st.session_state.get("game_state", {})
     active = gstate.get("active_game")
 
-    # Back button
     col_back, _ = st.columns([1, 3])
     with col_back:
         if st.button("← Back", key="games_back_btn"):
@@ -1258,7 +1571,6 @@ def render_beer_games():
     elif active == "hop_hop":
         render_hop_hop_game(name)
     else:
-        # Hub
         st.markdown('<div class="big-greeting">🎮 Beer Games</div>', unsafe_allow_html=True)
         st.markdown('<p class="gold-text" style="margin-bottom:20px;">Pick a game, earn bragging rights!</p>',
                     unsafe_allow_html=True)
@@ -1319,8 +1631,7 @@ def render_beer_games():
             }
             st.rerun()
 
-
-# ── trivia questions ──────────────────────────────────────────────────────────
+# ── trivia questions ───────────────────────────────────────────────────────────
 TRIVIA_QS = [
     {"q": "What gives IPA beers their bitter flavor?",
      "opts": ["Hops", "Barley", "Yeast", "Water"], "ans": 0},
@@ -1360,7 +1671,6 @@ def render_trivia_game(name):
             <div style="color:#d9e3f6;font-size:1rem;margin:8px 0;">scored {score}/{total} ({pct}%)</div>
             <div class="score-badge">{'Beer Master! 🏆' if pct==100 else 'Well Played! 🍺' if pct>=70 else 'Keep Practicing! 😄'}</div>
         </div>""", unsafe_allow_html=True)
-        # Sound celebration via HTML audio
         st.markdown(_celebrate_sound(pct), unsafe_allow_html=True)
         if st.button("🔄 PLAY AGAIN", key="trivia_again", use_container_width=True):
             st.session_state.game_state = {"active_game": "trivia", "q_idx": 0, "score": 0,
@@ -1384,7 +1694,7 @@ def render_trivia_game(name):
     st.markdown(f'<div class="score-badge">Score: {gs["score"]}</div>', unsafe_allow_html=True)
 
     if gs.get("answered"):
-        chosen = gs.get("chosen_idx", -1)
+        chosen  = gs.get("chosen_idx", -1)
         correct = q["ans"]
         for i, opt in enumerate(q["opts"]):
             if i == correct:
@@ -1489,8 +1799,8 @@ def render_pour_guess_game(name):
             if idx + 1 >= len(beers):
                 gs["done"] = True
             else:
-                gs["idx"]     = idx + 1
-                gs["guessed"] = False
+                gs["idx"]       = idx + 1
+                gs["guessed"]   = False
                 gs["guess_val"] = 5.0
             st.rerun()
     else:
@@ -1501,8 +1811,8 @@ def render_pour_guess_game(name):
         if st.button(f"LOCK IN {guess:.1f}%", key=f"pour_lock_{idx}", use_container_width=True):
             diff = abs(guess - real_abv)
             pts  = max(0, 10 - int(diff * 4))
-            gs["score"]   += pts
-            gs["guessed"]  = True
+            gs["score"]  += pts
+            gs["guessed"] = True
             st.rerun()
 
 
@@ -1550,7 +1860,7 @@ def render_hop_hop_game(name):
     st.markdown(f'<div class="score-badge">Score: {gs["score"]}</div>', unsafe_allow_html=True)
 
     if gs.get("answered"):
-        chosen = gs.get("chosen_real")
+        chosen  = gs.get("chosen_real")
         correct = is_real
         result_color = "#4ae176" if chosen == correct else "#ffb4ab"
         result_text  = "✅ Correct!" if chosen == correct else "❌ Wrong!"
@@ -1589,9 +1899,8 @@ def render_hop_hop_game(name):
                 st.rerun()
 
 
-# ── sound helpers (Web Audio API via HTML) ────────────────────────────────────
+# ── sound helpers ──────────────────────────────────────────────────────────────
 def _ding_sound():
-    """Play a pleasant ding for a correct answer."""
     return """
     <script>
     (function(){
@@ -1608,7 +1917,6 @@ def _ding_sound():
     </script>"""
 
 def _buzz_sound():
-    """Play a buzz for wrong answer."""
     return """
     <script>
     (function(){
@@ -1625,7 +1933,6 @@ def _buzz_sound():
     </script>"""
 
 def _tick_sound():
-    """Play a tick for a so-so answer."""
     return """
     <script>
     (function(){
@@ -1640,7 +1947,6 @@ def _tick_sound():
     </script>"""
 
 def _celebrate_sound(pct):
-    """Play a fanfare for game completion."""
     if pct >= 70:
         return """
         <script>
@@ -1662,17 +1968,19 @@ def _celebrate_sound(pct):
     else:
         return _tick_sound()
 
-# ── session state ─────────────────────────────────────────────────────────────
+# ── session state ──────────────────────────────────────────────────────────────
 def init_state():
     defaults = {
         "step": 0,
         "user_data": {"name":"","mood":"","brand_query":None,
                       "day":"","taste":"","search_type":None},
-        "rec_beers":          [],
-        "saved_beers":        [],
-        "show_debug":         False,
-        "feedback_submitted": False,
-        "game_state":         {},
+        "rec_beers":           [],
+        "saved_beers":         [],
+        "show_debug":          False,
+        "feedback_submitted":  False,
+        "game_state":          {},
+        "shared_list_token":   None,
+        "shared_list_title":   None,
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -1680,10 +1988,16 @@ def init_state():
 
 init_state()
 
-# ── MAIN ──────────────────────────────────────────────────────────────────────
+# ── MAIN ───────────────────────────────────────────────────────────────────────
 def main():
     inject_mobile_css()
     render_app_bar()
+
+    # ── Check for shared list URL param (?list=TOKEN) ─────────────────────────
+    params = st.query_params
+    if "list" in params:
+        render_shared_list_page(params["list"])
+        return
 
     if st.sidebar.button("Toggle Debug"):
         st.session_state.show_debug = not st.session_state.show_debug
@@ -1693,7 +2007,7 @@ def main():
     step = st.session_state.step
     ud   = st.session_state.user_data
 
-    # ── nav row ───────────────────────────────────────────────────────────────
+    # ── nav row ────────────────────────────────────────────────────────────────
     if step > 0 and step not in (5, 6):
         if step == 3:
             cb, cl = st.columns([1, 1])
@@ -1788,7 +2102,6 @@ def main():
             if st.button("🚫🍺 NON-ALCOHOLIC", key="na_btn", use_container_width=True):
                 ud["search_type"] = "non_alcoholic"; st.session_state.step = 2; st.rerun()
         with c4:
-            # CHANGE 2: Beer Games button
             if st.button("🎮 BEER GAMES", key="games_btn", use_container_width=True):
                 st.session_state.game_state = {}
                 st.session_state.step = 6; st.rerun()
@@ -1806,7 +2119,6 @@ def main():
 
         stype = ud.get("search_type")
 
-        # ── MOOD ──────────────────────────────────────────────────────────────
         if stype == "mood":
             st.markdown('<div style="height:16px;"></div>', unsafe_allow_html=True)
             with st.form("mood_form"):
@@ -1818,7 +2130,6 @@ def main():
                     else:
                         st.error("Please describe your mood")
 
-        # ── SPECIFIC BEER ─────────────────────────────────────────────────────
         elif stype == "brand":
             st.markdown('<div style="height:12px;"></div>', unsafe_allow_html=True)
             st.markdown('<p class="gold-text" style="font-size:0.9rem;margin-bottom:4px;">'
@@ -1839,7 +2150,6 @@ def main():
             st.markdown('<p style="color:#9b8f79;font-size:0.75rem;margin:2px 0 6px;">'
                         '— or record your search —</p>', unsafe_allow_html=True)
 
-            # CHANGE 3: No file upload — mic / audio_input only
             audio_bytes, mime_type = render_voice_widget()
 
             if audio_bytes:
@@ -1863,7 +2173,6 @@ def main():
                     st.session_state.step = 3
                     st.rerun()
 
-            # CHANGE 4: Search by image
             st.markdown('<div style="height:6px;"></div>', unsafe_allow_html=True)
             st.markdown('<p style="color:#9b8f79;font-size:0.75rem;margin:2px 0 6px;">'
                         '— or search by image 📸 —</p>', unsafe_allow_html=True)
@@ -1875,7 +2184,6 @@ def main():
 
             if img_file is not None:
                 img_bytes = img_file.read()
-                # Show the uploaded image preview
                 if _PIL_AVAILABLE:
                     preview = _PILImage.open(io.BytesIO(img_bytes))
                     st.image(preview, use_container_width=True, caption="Uploaded image")
@@ -1886,7 +2194,6 @@ def main():
                 if err:
                     st.error(f"❌ {err}")
                 elif query is None:
-                    # NOT_BEER or unclear
                     st.markdown(
                         '<div style="background:#16202e;border-radius:14px;padding:18px;'
                         'margin:12px 0;border:1px solid rgba(255,180,171,0.3);text-align:center;">'
@@ -2001,10 +2308,11 @@ def main():
         render_footer()
 
     # =========================================================================
-    # STEP 4 — Saved beers
+    # STEP 4 — Saved beers + Share panel
     # =========================================================================
     elif st.session_state.step == 4:
         st.markdown('<h3 class="gold-text">Your Saved Brews</h3>', unsafe_allow_html=True)
+
         if not st.session_state.saved_beers:
             st.markdown(
                 '<div style="background:#121c2a;padding:30px;border-radius:16px;margin:32px 0;'
@@ -2015,13 +2323,22 @@ def main():
             for i, beer in enumerate(st.session_state.saved_beers):
                 render_beer_with_zip_search(beer, f"sv_{i}", ud.get("search_type","brand"))
                 if st.button("REMOVE", key=f"remove_sv_{i}", use_container_width=True):
-                    st.session_state.saved_beers.pop(i); st.rerun()
+                    st.session_state.saved_beers.pop(i)
+                    # Reset share token if list changes
+                    st.session_state.shared_list_token = None
+                    st.session_state.shared_list_title = None
+                    st.rerun()
                 st.markdown('<hr style="border:none;border-top:1px solid rgba(255,209,101,0.07);margin:16px 0;">', unsafe_allow_html=True)
+
+            # ── Share panel — always shown when there are saved beers ─────────
+            st.markdown('<div style="height:8px;"></div>', unsafe_allow_html=True)
+            render_share_panel(st.session_state.saved_beers, ud.get("name", "User"))
+
         render_bottom_nav("saved")
         render_footer()
 
     # =========================================================================
-    # STEP 5 — Feedback
+    # STEP 5 — Feedback (now saves to PostgreSQL)
     # =========================================================================
     elif st.session_state.step == 5:
         st.markdown('<h3 class="gold-text">Feedback / Feature Request</h3>', unsafe_allow_html=True)

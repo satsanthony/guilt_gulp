@@ -5,7 +5,6 @@ import logging
 logging.basicConfig(level=logging.DEBUG)
 
 try:
-    # paste all your existing imports here
     import streamlit as st
     import google.generativeai as genai
     import os
@@ -17,7 +16,6 @@ try:
     import io
     import sys
     from huggingface_hub import HfApi, hf_hub_download
-    # ... rest of your imports
 except Exception as e:
     print("STARTUP ERROR:", e)
     traceback.print_exc()
@@ -31,7 +29,6 @@ try:
 except ImportError:
     _PIL_AVAILABLE = False
 
-# Optional: streamlit-mic-recorder (install via packages.txt on HF Spaces)
 try:
     from streamlit_mic_recorder import mic_recorder
     MIC_RECORDER_AVAILABLE = True
@@ -139,9 +136,9 @@ def save_feedback(username, feedback_text):
             f.write(content)
     except Exception as e:
         debug_print(f"Local feedback failed: {e}", "ERROR")
-    return True  # always succeed from UI perspective
+    return True
 
-# ── Gemini init — required model order ──────────────────────────────────────
+# ── Gemini init ──────────────────────────────────────────────────────────────
 @st.cache_resource(show_spinner=False)
 def initialize_gemini_model():
     if not GENAI_AVAILABLE:
@@ -379,6 +376,13 @@ def get_mobile_css():
             font-size: 0.7rem; font-weight: 700; text-transform: uppercase;
             letter-spacing: 0.12em; margin-bottom: 14px;
         }
+        .beer-rating-badge {
+            display: inline-flex; align-items: center; gap: 5px;
+            background: rgba(255,209,101,0.1); border: 1px solid rgba(255,209,101,0.3);
+            border-radius: 20px; padding: 4px 12px; margin-bottom: 10px;
+            font-family: 'Space Grotesk', sans-serif; font-size: 0.72rem; font-weight: 700;
+            color: #ffd165;
+        }
         .beer-metrics { display: grid; grid-template-columns: repeat(3,1fr); gap: 8px; margin: 12px 0; }
         .metric-box {
             background: var(--bg-card-low); border-radius: 12px; padding: 10px 6px;
@@ -402,6 +406,17 @@ def get_mobile_css():
             color: var(--text-sub); line-height: 1.5; text-align: left !important;
         }
 
+        /* ── ZIP SEARCH PANEL ── */
+        .zip-search-panel {
+            background: var(--bg-card); border: 1px solid rgba(255,209,101,0.15);
+            border-radius: 16px; padding: 16px; margin: 10px 0 4px;
+        }
+        .zip-search-title {
+            font-family: 'Space Grotesk', sans-serif; font-size: 0.7rem; font-weight: 700;
+            color: var(--accent); text-transform: uppercase; letter-spacing: 0.12em;
+            text-align: center !important; margin-bottom: 8px;
+        }
+
         /* ── BAR CARD ── */
         .bar-card {
             background: var(--bg-card-low); padding: 14px; margin: 10px 0;
@@ -410,6 +425,17 @@ def get_mobile_css():
         .bar-name { font-family: 'Epilogue', sans-serif; font-weight: 800; color: #d9e3f6; font-size: 1rem; margin-bottom: 5px; }
         .bar-address { color: var(--text-sub); font-size: 0.82rem; margin: 4px 0; }
         .bar-rating  { color: var(--accent); margin-top: 6px; font-size: 0.85rem; }
+
+        /* ── REFINE SEARCH BAR ── */
+        .refine-bar {
+            background: var(--bg-card); border: 1px solid rgba(255,209,101,0.15);
+            border-radius: 16px; padding: 14px 16px; margin: 0 0 18px;
+        }
+        .refine-bar-label {
+            font-family: 'Space Grotesk', sans-serif; font-size: 0.68rem; font-weight: 700;
+            color: var(--accent); text-transform: uppercase; letter-spacing: 0.12em;
+            text-align: center !important; margin-bottom: 8px;
+        }
 
         /* ── VOICE BUBBLE ── */
         .voice-heard-bubble {
@@ -421,6 +447,32 @@ def get_mobile_css():
             text-transform: uppercase; letter-spacing: 0.1em;
         }
         .voice-heard-text { color: #d9e3f6; font-size: 0.95rem; margin-top: 4px; }
+
+        /* ── GAMES CARD ── */
+        .game-card {
+            background: var(--bg-card); border: 1px solid rgba(255,209,101,0.18);
+            border-radius: 20px; padding: 20px; margin: 14px 0; cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        .game-card:hover { border-color: rgba(255,209,101,0.5); box-shadow: 0 4px 20px rgba(255,209,101,0.1); }
+        .game-title { font-family: 'Epilogue', sans-serif; font-size: 1.2rem; font-weight: 900; color: #ffd165; }
+        .game-desc { font-family: 'Plus Jakarta Sans', sans-serif; font-size: 0.82rem; color: #9b8f79; margin-top: 6px; }
+        .score-badge {
+            display: inline-block; background: rgba(255,209,101,0.12);
+            border: 1px solid rgba(255,209,101,0.3); border-radius: 20px; padding: 4px 14px;
+            font-family: 'Space Grotesk', sans-serif; font-size: 0.78rem; font-weight: 700; color: #ffd165;
+            margin: 8px 0;
+        }
+        .celebrate-box {
+            background: linear-gradient(135deg, #121c2a, #16202e);
+            border: 2px solid #ffd165; border-radius: 20px; padding: 30px 20px;
+            margin: 20px 0; text-align: center !important;
+        }
+        .celebrate-name {
+            font-family: 'Epilogue', sans-serif; font-size: 1.6rem; font-weight: 900;
+            background: linear-gradient(90deg, #ffd165, #4ae176);
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+        }
 
         /* ── MISC ── */
         .stSpinner > div { border-top-color: var(--accent) !important; }
@@ -504,22 +556,16 @@ def render_debug_panel():
         • mic_recorder: {MIC_RECORDER_AVAILABLE} | audio_input: {hasattr(st,'audio_input')}
     </div>""", unsafe_allow_html=True)
 
-# ── DST-aware greeting — NOT cached so time is always live ───────────────────
-def get_greeting(zipcode):
-    """
-    Returns (greeting, time_str) for the given US zip.
-    Applies US DST rule (2nd Sun March → 1st Sun November) to avoid
-    the 1-hour-behind bug that occurred with a fixed standard offset.
-    """
+# ── DST-aware greeting ───────────────────────────────────────────────────────
+def get_greeting(zipcode="90210"):
     greeting = "Hello"
     time_str  = ""
     try:
-        first = int(str(zipcode)[0])
-        # Standard (winter) UTC offset by zip prefix
-        if   first in [0, 1, 2, 3]: std = -5   # Eastern
-        elif first in [4, 5, 6]:    std = -6   # Central
-        elif first == 7:             std = -7   # Mountain
-        else:                        std = -8   # Pacific
+        first = int(str(zipcode)[0]) if zipcode else 9
+        if   first in [0, 1, 2, 3]: std = -5
+        elif first in [4, 5, 6]:    std = -6
+        elif first == 7:             std = -7
+        else:                        std = -8
 
         now_utc = datetime.datetime.utcnow()
         y = now_utc.year
@@ -614,7 +660,6 @@ def zip_to_coords(zipcode):
 
 @st.cache_data(ttl=86400)
 def city_state_from_zip(zipcode):
-    """Returns (city, state_abbr) for display below the zip input."""
     if not GOOGLE_GEOCODING_API_KEY:
         return "", ""
     try:
@@ -636,9 +681,7 @@ def city_state_from_zip(zipcode):
         debug_print(f"city_state_from_zip: {e}", "ERROR")
     return "", ""
 
-
 def city_from_zip(zipcode):
-    """Legacy wrapper used by bar agents (city name only)."""
     city, _ = city_state_from_zip(zipcode)
     return city
 
@@ -683,7 +726,7 @@ def ai_extract_bar_names(web_results, beer_name, city):
         debug_print(f"Bar extract: {e}", "ERROR")
         return []
 
-def verify_bars_places(bar_names, lat, lng, radius=8000):
+def verify_bars_places(bar_names, lat, lng, radius=16093):  # 10 miles in meters
     if not GOOGLE_PLACES_API_KEY or not bar_names:
         return []
     verified = []
@@ -722,13 +765,107 @@ def verify_bars_places(bar_names, lat, lng, radius=8000):
     return verified
 
 @st.cache_data(ttl=3600)
-def find_bars(lat, lng, beer_name, brand, zipcode):
+def find_bars_nearby(lat, lng, beer_name, brand, zipcode):
+    """Find bars within 10 miles selling the given beer."""
     city  = city_from_zip(zipcode)
     webs  = web_search_bars(beer_name, brand, zipcode, city)
     if not webs: return []
     names = ai_extract_bar_names(webs, beer_name, city)
     if not names: return []
-    return verify_bars_places(names, lat, lng)
+    return verify_bars_places(names, lat, lng, radius=16093)
+
+@st.cache_data(ttl=3600)
+def find_na_venues_nearby(lat, lng, zipcode):
+    """Find venues within 10 miles carrying non-alcoholic beers."""
+    if not GOOGLE_PLACES_API_KEY:
+        return []
+    city = city_from_zip(zipcode)
+    queries = [
+        f"non-alcoholic beer bar near {city}",
+        f"craft non-alcoholic drinks near {zipcode}",
+    ]
+    names = []
+    if GOOGLE_CSE_API_KEY and GOOGLE_CSE_CX:
+        for q in queries:
+            try:
+                r = requests.get("https://www.googleapis.com/customsearch/v1",
+                                 params={"key": GOOGLE_CSE_API_KEY, "cx": GOOGLE_CSE_CX,
+                                         "q": q, "num": 5}, timeout=10)
+                if r.status_code == 200:
+                    items = r.json().get("items", [])
+                    if items and processing_model:
+                        summary = "\n".join(
+                            f"{i+1}: {it.get('title','')} - {it.get('snippet','')}"
+                            for i, it in enumerate(items[:6]))
+                        prompt = (f"Extract real bar/venue names from results about non-alcoholic drinks in {city}.\n"
+                                  f"{summary}\n"
+                                  f'Return ONLY JSON: [{{"name":"Venue Name","confidence":"high/medium"}}] Max 6. No markdown.')
+                        resp = processing_model.generate_content(prompt)
+                        if resp and resp.text:
+                            text = resp.text.strip()
+                            if "```json" in text: text = text.split("```json")[1].split("```")[0].strip()
+                            elif "```" in text:   text = text.split("```")[1].split("```")[0].strip()
+                            extracted = json.loads(text)
+                            if isinstance(extracted, list):
+                                names.extend(extracted)
+            except Exception as e:
+                debug_print(f"NA venue search: {e}", "ERROR")
+    if not names:
+        names = [{"name": f"craft beer bar {city}"}, {"name": f"gastropub {city}"}]
+    return verify_bars_places(names, lat, lng, radius=16093)
+
+# ── beer availability via Places ──────────────────────────────────────────────
+@st.cache_data(ttl=3600)
+def check_beer_availability_nearby(beer_name, brand, zipcode):
+    """
+    Search Google Places for stores/bars stocking this beer within 10 miles.
+    Returns list of place dicts.
+    """
+    if not GOOGLE_PLACES_API_KEY:
+        return []
+    lat, lng = zip_to_coords(zipcode)
+    if not lat:
+        return []
+    city = city_from_zip(zipcode) or zipcode
+    radius = 16093  # 10 miles
+
+    results = []
+    queries = [
+        f"{beer_name} {brand} beer store near {city}",
+        f"buy {beer_name} beer near {zipcode}",
+    ]
+    for q in queries:
+        try:
+            r = requests.post(
+                "https://places.googleapis.com/v1/places:searchText",
+                json={"textQuery": q,
+                      "locationBias": {"circle": {"center": {"latitude": lat, "longitude": lng},
+                                                   "radius": radius}},
+                      "maxResultCount": 3},
+                headers={"Content-Type": "application/json",
+                         "X-Goog-Api-Key": GOOGLE_PLACES_API_KEY,
+                         "X-Goog-FieldMask": ("places.displayName,places.formattedAddress,"
+                                               "places.rating,places.priceLevel,places.id,places.location")},
+                timeout=10)
+            if r.status_code == 200:
+                for p in r.json().get("places", []):
+                    pl = p.get("priceLevel")
+                    entry = {
+                        "name":        p.get("displayName", {}).get("text", "Unknown"),
+                        "address":     p.get("formattedAddress", ""),
+                        "rating":      p.get("rating", "N/A"),
+                        "price_level": "$" * int(pl) if pl and str(pl).isdigit() else "$$",
+                        "place_id":    p.get("id", ""),
+                        "lat":         p.get("location", {}).get("latitude"),
+                        "lng":         p.get("location", {}).get("longitude"),
+                    }
+                    if not any(x["name"] == entry["name"] for x in results):
+                        results.append(entry)
+        except Exception as e:
+            debug_print(f"Availability check: {e}", "ERROR")
+        if len(results) >= 4:
+            break
+    return results[:5]
 
 # ── beer image ────────────────────────────────────────────────────────────────
 def attach_image(beer):
@@ -761,6 +898,55 @@ def transcribe_audio(audio_bytes, mime_type="audio/wav"):
         debug_print(f"Transcribe error: {e}", "ERROR")
         return None, "Voice transcription unavailable. Please type your search below."
 
+# ── image-based beer search ───────────────────────────────────────────────────
+def identify_beer_from_image(image_bytes):
+    """
+    Use Gemini vision to identify a beer from an uploaded image.
+    Returns (query_string, error_message).
+    query_string is None if the image is not a beer or not clear enough.
+    """
+    if not processing_model:
+        return None, "AI model not available"
+    try:
+        # Resize / compress if PIL available
+        if _PIL_AVAILABLE:
+            img = _PILImage.open(io.BytesIO(image_bytes))
+            img.thumbnail((800, 800), _PILImage.LANCZOS)
+            if img.mode in ("RGBA", "LA", "P"):
+                img = img.convert("RGB")
+            buf = io.BytesIO()
+            img.save(buf, format="JPEG", quality=85)
+            image_bytes = buf.getvalue()
+            mime = "image/jpeg"
+        else:
+            mime = "image/jpeg"
+
+        encoded = base64.b64encode(image_bytes).decode()
+        parts = [
+            {"inline_data": {"mime_type": mime, "data": encoded}},
+            {"text": (
+                "You are a beer identification expert. Look at this image carefully.\n"
+                "1. If this image clearly shows a beer bottle, can, glass of beer, or beer brand/label, "
+                "respond ONLY with the beer name and brand in this exact format: BEER_FOUND: <beer name> <brand>\n"
+                "2. If this is not a beer image, or the image is too blurry/unclear to identify a beer, "
+                "respond ONLY with: NOT_BEER\n"
+                "Do not add any explanation."
+            )}
+        ]
+        resp = processing_model.generate_content(parts)
+        if not resp or not resp.text:
+            return None, "Could not analyze the image. Please type your search instead."
+        result = resp.text.strip()
+        debug_print(f"Image ID result: {result}", "INFO")
+        if result.startswith("BEER_FOUND:"):
+            query = result.replace("BEER_FOUND:", "").strip()
+            return query, None
+        else:
+            return None, None  # NOT_BEER — caller shows the sorry message
+    except Exception as e:
+        debug_print(f"Image identify error: {e}", "ERROR")
+        return None, "Image analysis failed. Please type your search instead."
+
 # ── JSON parse ────────────────────────────────────────────────────────────────
 def parse_beer_json(text):
     text = text.strip()
@@ -773,7 +959,8 @@ def parse_beer_json(text):
 # ── AI recommendation wrappers ────────────────────────────────────────────────
 _BEER_SCHEMA = ('{"name":"Beer Name","brand":"Brand Name","calories":"150","abv":"5.5%","ibu":"45",'
                 '"taste":"Crisp and citrusy","food_pairing":"Grilled chicken, tacos",'
-                '"description":"A crisp beer","price_range":"$$","where_to_buy":"Total Wine, BevMo"}')
+                '"description":"A crisp beer","price_range":"$$","where_to_buy":"Total Wine, BevMo",'
+                '"google_rating":"4.3","review_count":"2800"}')
 
 def _call_ai(prompt):
     if not processing_model:
@@ -790,48 +977,79 @@ def _call_ai(prompt):
     except Exception as e:
         st.error(f"⚠️ {e}"); return []
 
-def ai_mood_recs(zipcode, mood, day, taste):
+# ── CHANGE 1: Up to 10 beers, do not fabricate if fewer exist ──────────────
+def ai_mood_recs(mood, day, taste):
     return _call_ai(
-        f"Act as a beer sommelier. Suggest 3 beers based on:\n"
-        f"Zip:{zipcode[:5]}, Mood:{mood[:35]}, Day:{day[:35]}, Taste:{taste[:35]}.\n"
-        f"Return ONLY a JSON array of 3: [{_BEER_SCHEMA}]\nNo markdown.")
+        f"Act as a beer sommelier. Suggest up to 10 beers ranked by Google review ratings based on:\n"
+        f"Mood:{mood[:35]}, Day:{day[:35]}, Taste:{taste[:35]}.\n"
+        f"Only include beers you are confident exist and have real Google ratings (4.0+). "
+        f"Do NOT fabricate beers. Return only beers you actually know. "
+        f"Sort results from highest to lowest rating. Return between 1 and 10 results.\n"
+        f"Return ONLY a JSON array: [{_BEER_SCHEMA}]\nNo markdown.")
 
-def ai_brand_recs(zipcode, query):
+def ai_brand_recs(query):
     schema = _BEER_SCHEMA.rstrip("}") + ',"available_locally":true}'
     return _call_ai(
-        f'Act as a beer sommelier. User wants "{query}" near {zipcode}.\n'
-        f"Return 3 options. Unavailable locally → available_locally:false.\n"
-        f"Return ONLY a JSON array of 3: [{schema}]\nNo markdown.")
+        f'Act as a beer sommelier. User wants "{query}".\n'
+        f"Return up to 10 options ranked by Google review ratings (highest first). "
+        f"Only include beers that actually exist. Do NOT fabricate beers. "
+        f"Include google_rating and review_count. Return between 1 and 10 results.\n"
+        f"Return ONLY a JSON array: [{schema}]\nNo markdown.")
 
-def ai_na_recs(zipcode):
+def ai_na_recs():
     schema = _BEER_SCHEMA.replace('"5.5%"', '"0.0%"').replace('"150"', '"50"')
     return _call_ai(
-        f"Act as a beer sommelier. User wants non-alcoholic beers near {zipcode}.\n"
-        f"Return ONLY a JSON array of 3: [{schema}]\nNo markdown.")
+        f"Act as a beer sommelier. Suggest up to 10 non-alcoholic beers ranked by Google review ratings. "
+        f"Only include real non-alcoholic beers you are confident exist with verified ratings (4.0+). "
+        f"Do NOT fabricate beers. Sort highest to lowest. Return between 1 and 10 results.\n"
+        f"Return ONLY a JSON array: [{schema}]\nNo markdown.")
+
+def ai_image_rec(query):
+    """Return exactly 1 beer matching the image-identified query. No extras."""
+    schema = _BEER_SCHEMA.rstrip("}") + ',"available_locally":true}'
+    return _call_ai(
+        f'Act as a beer sommelier. The user uploaded a photo and it was identified as: "{query}".\n'
+        f"Return ONLY that single specific beer. Do NOT add similar or alternative beers. "
+        f"Return exactly 1 result — the beer that matches the image.\n"
+        f"Return ONLY a JSON array with 1 item: [{schema}]\nNo markdown.")
 
 # ── card rendering ────────────────────────────────────────────────────────────
 def beer_card_html(beer):
-    name             = beer.get("name", "Unknown")
-    brand            = beer.get("brand", "Craft Beer")
-    abv              = beer.get("abv", "?")
-    calories         = beer.get("calories", "?")
-    price_range      = beer.get("price_range", "$")
-    description      = beer.get("description", "")
-    where_to_buy     = beer.get("where_to_buy", "Check Local Stores")
-    ibu              = beer.get("ibu", "")
-    taste            = beer.get("taste", "")
-    food_pairing     = beer.get("food_pairing", "")
+    name              = beer.get("name", "Unknown")
+    brand             = beer.get("brand", "Craft Beer")
+    abv               = beer.get("abv", "?")
+    calories          = beer.get("calories", "?")
+    price_range       = beer.get("price_range", "$")
+    description       = beer.get("description", "")
+    where_to_buy      = beer.get("where_to_buy", "Check Local Stores")
+    ibu               = beer.get("ibu", "")
+    taste             = beer.get("taste", "")
+    food_pairing      = beer.get("food_pairing", "")
     available_locally = beer.get("available_locally", True)
+    google_rating     = beer.get("google_rating", "")
+    review_count      = beer.get("review_count", "")
 
     cls    = "beer-card" + ("" if available_locally else " unavailable")
     badge  = "" if available_locally else '<span class="unavailable-badge">* Not near you</span>'
+
+    # Rating badge
+    rating_html = ""
+    if google_rating:
+        stars = "★" * round(float(str(google_rating).replace(",", ".")))
+        count_str = f" · {review_count} reviews" if review_count else ""
+        rating_html = (f'<div style="text-align:center!important;margin-bottom:10px;">'
+                       f'<span class="beer-rating-badge">⭐ {google_rating} {stars}{count_str} on Google</span>'
+                       f'</div>')
+
     extras = ""
     if ibu:         extras += f'<div class="beer-detail-row"><div class="beer-detail-label">IBU — Bitterness</div><div class="beer-detail-value">{ibu}</div></div>'
     if taste:       extras += f'<div class="beer-detail-row"><div class="beer-detail-label">Taste Profile</div><div class="beer-detail-value">{taste}</div></div>'
     if food_pairing:extras += f'<div class="beer-detail-row"><div class="beer-detail-label">Food Pairing</div><div class="beer-detail-value">{food_pairing}</div></div>'
+
     return (
         f'<div class="{cls}">{badge}'
         f'<div class="beer-title">{name}</div><div class="beer-brand">{brand}</div>'
+        f'{rating_html}'
         f'<div class="beer-metrics">'
         f'<div class="metric-box"><div class="metric-value">{abv}</div><div class="metric-label">ABV</div></div>'
         f'<div class="metric-box"><div class="metric-value">{calories}</div><div class="metric-label">Cals</div></div>'
@@ -844,6 +1062,8 @@ def beer_card_html(beer):
     )
 
 def render_bar(bar):
+    if not bar.get("lat") or not bar.get("lng"):
+        return
     maps = (f"https://www.google.com/maps/search/?api=1"
             f"&query={bar['lat']},{bar['lng']}&query_place_id={bar['place_id']}")
     st.markdown(
@@ -854,45 +1074,103 @@ def render_bar(bar):
         f'</div>', unsafe_allow_html=True)
     st.markdown(f"[📍 Open in Google Maps]({maps})")
 
-def render_beer_with_bars(beer, zipcode, key):
+def render_beer_with_zip_search(beer, beer_idx, search_type):
+    ukey = f"beer_{beer_idx}_{beer.get('name','?').replace(' ','_')}"
+
     if beer.get("image_bytes"):
         st.image(beer["image_bytes"], use_container_width=True)
     st.markdown(beer_card_html(beer), unsafe_allow_html=True)
-    with st.expander(f"🍻 Bars near you serving {beer.get('name')}"):
-        lat, lng = zip_to_coords(zipcode)
-        if lat and lng:
-            with st.spinner("🤖 AI agents researching bars…"):
-                bars = find_bars(lat, lng, beer.get("name"), beer.get("brand",""), zipcode)
-            if bars:
-                st.markdown(f'<p style="color:#ffd165;font-size:0.88rem;margin-bottom:12px;">'
-                            f'🎯 Bars serving {beer.get("name")} near you:</p>', unsafe_allow_html=True)
-                for bar in bars:
-                    render_bar(bar)
-            else:
-                st.info("🤖 Couldn't find bars serving this beer nearby. Check 'Where to Buy' above.")
-        else:
-            st.warning("Unable to locate bars for this zipcode.")
 
-# ── voice input widget — works on local + HF Spaces ──────────────────────────
+    # ── Saved button ──
+    saved = any(b["name"] == beer["name"] for b in st.session_state.saved_beers)
+    if not saved:
+        if st.button("SAVE", key=f"save_{ukey}", use_container_width=True):
+            st.session_state.saved_beers.append(beer)
+            log_beer_selection(
+                st.session_state.user_data.get("name", "User"),
+                beer.get("name","?"), beer.get("brand","?"),
+                st.session_state.user_data.get("search_type","unknown"),
+                st.session_state.user_data.get("mood"))
+            st.rerun()
+    else:
+        st.button("SAVED ✓", disabled=True, key=f"saved_{ukey}", use_container_width=True)
+
+    # ── Zip search panel ──────────────────────────────────────────────────────
+    st.markdown('<div class="zip-search-panel">', unsafe_allow_html=True)
+    st.markdown(f'<div class="zip-search-title">📍 Check availability near you</div>', unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    zip_key = f"zip_input_{ukey}"
+    search_key = f"zip_search_btn_{ukey}"
+
+    col_z, col_b = st.columns([3, 1])
+    with col_z:
+        entered_zip = st.text_input(
+            "Enter zipcode",
+            placeholder="e.g. 90210",
+            max_chars=5,
+            key=zip_key,
+            label_visibility="collapsed")
+    with col_b:
+        do_search = st.button("GO", key=search_key, use_container_width=True)
+
+    result_key = f"zip_result_{ukey}"
+    if do_search and entered_zip:
+        ok, clean_zip = validate_zipcode(entered_zip)
+        if not ok:
+            st.error(f"❌ {clean_zip}")
+        else:
+            city_n, state_n = city_state_from_zip(clean_zip)
+            loc_label = f"{city_n}, {state_n}" if city_n else clean_zip
+            st.session_state[result_key] = {"zip": clean_zip, "label": loc_label, "loaded": False}
+
+    if result_key in st.session_state:
+        rdata = st.session_state[result_key]
+        z     = rdata["zip"]
+        label = rdata["label"]
+
+        st.markdown(
+            f'<p style="color:#ffd165;font-size:0.78rem;text-align:center!important;'
+            f'font-family:Space Grotesk,sans-serif;margin:6px 0 10px;">📍 Results near {label}</p>',
+            unsafe_allow_html=True)
+
+        lat, lng = zip_to_coords(z)
+        if not lat:
+            st.warning("⚠️ Could not geocode that zipcode.")
+        else:
+            with st.spinner("🔍 Checking availability…"):
+                avail = check_beer_availability_nearby(beer.get("name",""), beer.get("brand",""), z)
+
+            if avail:
+                st.markdown('<p style="color:#4ae176;font-size:0.82rem;text-align:center!important;'
+                            'margin-bottom:6px;">✅ Found nearby stores/venues:</p>', unsafe_allow_html=True)
+                for place in avail:
+                    render_bar(place)
+            else:
+                st.info("🔍 No specific availability found. Try a local Total Wine, BevMo, or craft beer shop.")
+
+            with st.expander(f"🍻 Bars within 10 miles serving {beer.get('name', 'this beer')}"):
+                with st.spinner("🤖 AI agents finding bars…"):
+                    if search_type == "non_alcoholic":
+                        bars = find_na_venues_nearby(lat, lng, z)
+                    else:
+                        bars = find_bars_nearby(lat, lng, beer.get("name",""), beer.get("brand",""), z)
+                if bars:
+                    for bar in bars:
+                        render_bar(bar)
+                else:
+                    st.info("🤖 No bars found for this beer in the area. Check local craft beer pubs!")
+
+# ── voice input widget ────────────────────────────────────────────────────────
+# CHANGE 3: Removed file upload option — only mic recorder or built-in audio_input
 def render_voice_widget():
-    """
-    Returns (audio_bytes, mime_type) or (None, None).
-    Priority:
-      1. streamlit-mic-recorder  (best for HF Spaces / all browsers)
-      2. st.audio_input          (Streamlit ≥ 1.43, works on Safari/HTTPS)
-      3. st.file_uploader        (universal fallback)
-    """
     audio_bytes = None
     mime_type   = "audio/wav"
 
     if MIC_RECORDER_AVAILABLE:
         st.markdown('<p class="gold-text" style="font-size:0.78rem;margin-bottom:4px;">🎤 Record your search</p>',
                     unsafe_allow_html=True)
-        audio = mic_recorder(
-            start_prompt="⏺ Record",
-            stop_prompt="⏹ Stop",
-            key="mic_rec",
-        )
+        audio = mic_recorder(start_prompt="⏺ Record", stop_prompt="⏹ Stop", key="mic_rec")
         if audio and audio.get("bytes"):
             audio_bytes = audio["bytes"]
             mime_type   = "audio/wav"
@@ -906,30 +1184,495 @@ def render_voice_widget():
         except Exception as e:
             debug_print(f"audio_input error: {e}", "WARNING")
 
-    # Always show file-upload fallback alongside mic widget
-    if audio_bytes is None:
-        up = st.file_uploader(
-            "📎 Or upload audio (WAV · MP3 · M4A · OGG · WEBM)",
-            type=["wav","mp3","m4a","ogg","webm"],
-            key="voice_uploader",
-        )
-        if up:
-            audio_bytes = up.read()
-            mime_type   = up.type or "audio/wav"
-
     return audio_bytes, mime_type
+
+# ── Refine search bar ──────────────────────────────────────────────────────────
+def render_refine_search(search_type, label="🔄 Search for a different beer"):
+    st.markdown(f'<div class="refine-bar"><div class="refine-bar-label">{label}</div></div>',
+                unsafe_allow_html=True)
+
+    ud = st.session_state.user_data
+
+    if search_type == "non_alcoholic":
+        if st.button("🔄 REFRESH NON-ALCOHOLIC PICKS", key="refine_na_btn", use_container_width=True):
+            with st.spinner("Refreshing non-alcoholic recommendations…"):
+                beers = ai_na_recs()
+            st.session_state.rec_beers = beers
+            st.rerun()
+
+    elif search_type == "mood":
+        with st.form("refine_mood_form"):
+            new_mood = st.text_input(
+                "Change vibe",
+                value=ud.get("mood", ""),
+                placeholder="Relaxed, Hyped, Tired…",
+                max_chars=35)
+            new_day   = st.text_input("Day?", value=ud.get("day",""), placeholder="Easy day, celebratory…", max_chars=35)
+            new_taste = st.text_input("Taste?", value=ud.get("taste",""), placeholder="Hoppy, Sweet, Dark…", max_chars=35)
+            if st.form_submit_button("🔄 REFRESH"):
+                if new_mood:
+                    ud["mood"]  = new_mood
+                    ud["day"]   = new_day or ud.get("day", "")
+                    ud["taste"] = new_taste or ud.get("taste", "")
+                    with st.spinner("Finding new recommendations…"):
+                        beers = ai_mood_recs(ud["mood"], ud["day"], ud["taste"])
+                    st.session_state.rec_beers = beers
+                    st.rerun()
+
+    else:  # brand / specific beer / voice / image
+        with st.form("refine_brand_form"):
+            new_query = st.text_input(
+                "Search a different beer",
+                value=ud.get("brand_query", "") or "",
+                placeholder="Guinness, West Coast IPA…",
+                max_chars=35)
+            if st.form_submit_button("🔄 FIND IT"):
+                if new_query.strip():
+                    ud["brand_query"] = new_query.strip()
+                    with st.spinner(f"Searching for {new_query}…"):
+                        beers = ai_brand_recs(new_query.strip())
+                    st.session_state.rec_beers = beers
+                    st.rerun()
+
+# ── CHANGE 2: Beer Games ──────────────────────────────────────────────────────
+def render_beer_games():
+    """Renders the Beer Games hub and the active game."""
+    ud   = st.session_state.user_data
+    name = ud.get("name", "Player")
+
+    gstate = st.session_state.get("game_state", {})
+    active = gstate.get("active_game")
+
+    # Back button
+    col_back, _ = st.columns([1, 3])
+    with col_back:
+        if st.button("← Back", key="games_back_btn"):
+            st.session_state.game_state = {}
+            st.session_state.step = 1
+            st.rerun()
+
+    if active == "trivia":
+        render_trivia_game(name)
+    elif active == "pour_guess":
+        render_pour_guess_game(name)
+    elif active == "hop_hop":
+        render_hop_hop_game(name)
+    else:
+        # Hub
+        st.markdown('<div class="big-greeting">🎮 Beer Games</div>', unsafe_allow_html=True)
+        st.markdown('<p class="gold-text" style="margin-bottom:20px;">Pick a game, earn bragging rights!</p>',
+                    unsafe_allow_html=True)
+
+        st.markdown("""
+        <div class="game-card">
+            <div class="game-title">🧠 Beer Trivia</div>
+            <div class="game-desc">10 questions about beer history, styles & culture. Score points for each right answer!</div>
+        </div>""", unsafe_allow_html=True)
+        if st.button("PLAY BEER TRIVIA", key="start_trivia", use_container_width=True):
+            st.session_state.game_state = {
+                "active_game": "trivia", "q_idx": 0, "score": 0, "answered": False, "done": False
+            }
+            st.rerun()
+
+        st.markdown("""
+        <div class="game-card">
+            <div class="game-title">🍺 Pour Perfect</div>
+            <div class="game-desc">Guess the mystery beer ABV! Tap closer to the real number to score higher.</div>
+        </div>""", unsafe_allow_html=True)
+        if st.button("PLAY POUR PERFECT", key="start_pour", use_container_width=True):
+            import random
+            beers = [
+                ("Bud Light", 4.2), ("Guinness Draught", 4.2), ("Sierra Nevada Pale Ale", 5.6),
+                ("Dogfish Head 60 Min IPA", 6.0), ("Samuel Adams Boston Lager", 4.9),
+                ("Blue Moon Belgian White", 5.4), ("Heineken", 5.0), ("Corona Extra", 4.6),
+                ("Stone IPA", 6.9), ("Founders All Day IPA", 4.7),
+            ]
+            random.shuffle(beers)
+            st.session_state.game_state = {
+                "active_game": "pour_guess", "beers": beers, "idx": 0, "score": 0, "done": False,
+                "guessed": False, "guess_val": 5.0,
+            }
+            st.rerun()
+
+        st.markdown("""
+        <div class="game-card">
+            <div class="game-title">🌾 Hop or Not</div>
+            <div class="game-desc">Swipe LEFT or RIGHT — Is it a real beer or made up? Beat 10 rounds!</div>
+        </div>""", unsafe_allow_html=True)
+        if st.button("PLAY HOP OR NOT", key="start_hop", use_container_width=True):
+            import random
+            pairs = [
+                ("Pliny the Elder", True), ("Zombie Dust", True), ("King Cobra", True),
+                ("Hammerhead Red", True), ("Hopzilla IPA", True), ("Tangerine Moon", False),
+                ("Foggy Barrel Wheat", False), ("Purple Haze Stout", False),
+                ("Electric Eel Pale Ale", False), ("Double Dragon Dark", False),
+                ("Arrogant Bastard Ale", True), ("Sculpin IPA", True),
+                ("Raspberry Unicorn Sour", False), ("Velvet Thunder Porter", False),
+                ("Alaskan Amber", True), ("Cosmic Pilgrim Lager", False),
+                ("Loose Cannon IPA", True), ("Quantum Foam Saison", False),
+                ("Two Hearted Ale", True), ("Midnight Mustache Stout", False),
+            ]
+            random.shuffle(pairs)
+            used = pairs[:10]
+            st.session_state.game_state = {
+                "active_game": "hop_hop", "rounds": used, "idx": 0, "score": 0, "done": False, "answered": False,
+            }
+            st.rerun()
+
+
+# ── trivia questions ──────────────────────────────────────────────────────────
+TRIVIA_QS = [
+    {"q": "What gives IPA beers their bitter flavor?",
+     "opts": ["Hops", "Barley", "Yeast", "Water"], "ans": 0},
+    {"q": "Which country invented lager beer?",
+     "opts": ["Germany", "Ireland", "Belgium", "USA"], "ans": 0},
+    {"q": "What does ABV stand for?",
+     "opts": ["Alcohol By Volume", "Amber Brew Variant", "Aged Barrel Value", "Ale Batch Verified"], "ans": 0},
+    {"q": "Guinness is originally from which city?",
+     "opts": ["Dublin", "London", "Edinburgh", "Cork"], "ans": 0},
+    {"q": "Which beer style is known for its dark color and roasted malt flavors?",
+     "opts": ["Stout", "Pilsner", "Hefeweizen", "Gose"], "ans": 0},
+    {"q": "What is the main fermentable ingredient in beer?",
+     "opts": ["Malted barley", "Corn", "Rice", "Wheat"], "ans": 0},
+    {"q": "What does IBU measure?",
+     "opts": ["Bitterness", "Alcohol", "Color", "Sweetness"], "ans": 0},
+    {"q": "A 'growler' in beer culture refers to what?",
+     "opts": ["A take-home jug of draft beer", "A grumpy bartender", "A style of glass", "A beer warmer"], "ans": 0},
+    {"q": "Which US state is known as the craft beer capital?",
+     "opts": ["Oregon", "Texas", "Florida", "New York"], "ans": 0},
+    {"q": "Sour beers get their tartness primarily from?",
+     "opts": ["Wild yeast & bacteria", "Lemon juice", "Vinegar", "Citrus hops"], "ans": 0},
+]
+
+def render_trivia_game(name):
+    gs = st.session_state.game_state
+    st.markdown('<div class="big-greeting">🧠 Beer Trivia</div>', unsafe_allow_html=True)
+
+    if gs.get("done"):
+        score = gs["score"]
+        total = len(TRIVIA_QS)
+        pct   = int(score / total * 100)
+        emoji = "🏆" if pct >= 80 else "🍺" if pct >= 50 else "😅"
+        st.markdown(f"""
+        <div class="celebrate-box">
+            <div style="font-size:3rem;">{emoji}</div>
+            <div class="celebrate-name">{name}</div>
+            <div style="color:#d9e3f6;font-size:1rem;margin:8px 0;">scored {score}/{total} ({pct}%)</div>
+            <div class="score-badge">{'Beer Master! 🏆' if pct==100 else 'Well Played! 🍺' if pct>=70 else 'Keep Practicing! 😄'}</div>
+        </div>""", unsafe_allow_html=True)
+        # Sound celebration via HTML audio
+        st.markdown(_celebrate_sound(pct), unsafe_allow_html=True)
+        if st.button("🔄 PLAY AGAIN", key="trivia_again", use_container_width=True):
+            st.session_state.game_state = {"active_game": "trivia", "q_idx": 0, "score": 0,
+                                            "answered": False, "done": False}
+            st.rerun()
+        if st.button("🎮 OTHER GAMES", key="trivia_hub", use_container_width=True):
+            st.session_state.game_state = {}
+            st.rerun()
+        return
+
+    qi = gs["q_idx"]
+    q  = TRIVIA_QS[qi]
+    st.markdown(
+        f'<div style="background:#121c2a;border-radius:14px;padding:16px;margin:10px 0;'
+        f'border:1px solid rgba(255,209,101,0.15);">'
+        f'<p style="color:#9b8f79;font-size:0.7rem;font-family:Space Grotesk,sans-serif;'
+        f'text-transform:uppercase;letter-spacing:0.1em;">Question {qi+1} of {len(TRIVIA_QS)}</p>'
+        f'<p style="color:#d9e3f6;font-size:1rem;font-weight:600;margin-top:8px;">{q["q"]}</p>'
+        f'</div>', unsafe_allow_html=True)
+
+    st.markdown(f'<div class="score-badge">Score: {gs["score"]}</div>', unsafe_allow_html=True)
+
+    if gs.get("answered"):
+        chosen = gs.get("chosen_idx", -1)
+        correct = q["ans"]
+        for i, opt in enumerate(q["opts"]):
+            if i == correct:
+                st.markdown(f'<div style="background:rgba(74,225,118,0.15);border:1px solid #4ae176;'
+                            f'border-radius:10px;padding:12px;margin:6px 0;color:#4ae176;font-weight:600;">'
+                            f'✅ {opt}</div>', unsafe_allow_html=True)
+            elif i == chosen and chosen != correct:
+                st.markdown(f'<div style="background:rgba(255,180,171,0.15);border:1px solid #ffb4ab;'
+                            f'border-radius:10px;padding:12px;margin:6px 0;color:#ffb4ab;">'
+                            f'❌ {opt}</div>', unsafe_allow_html=True)
+            else:
+                st.markdown(f'<div style="background:#16202e;border:1px solid rgba(255,255,255,0.06);'
+                            f'border-radius:10px;padding:12px;margin:6px 0;color:#9b8f79;">'
+                            f'{opt}</div>', unsafe_allow_html=True)
+
+        if chosen == correct:
+            st.markdown(_ding_sound(), unsafe_allow_html=True)
+        else:
+            st.markdown(_buzz_sound(), unsafe_allow_html=True)
+
+        next_label = "FINISH" if qi + 1 >= len(TRIVIA_QS) else "NEXT QUESTION →"
+        if st.button(next_label, key=f"trivia_next_{qi}", use_container_width=True):
+            if qi + 1 >= len(TRIVIA_QS):
+                gs["done"] = True
+            else:
+                gs["q_idx"]    = qi + 1
+                gs["answered"] = False
+            st.rerun()
+    else:
+        for i, opt in enumerate(q["opts"]):
+            if st.button(opt, key=f"trivia_opt_{qi}_{i}", use_container_width=True):
+                gs["answered"]   = True
+                gs["chosen_idx"] = i
+                if i == q["ans"]:
+                    gs["score"] += 1
+                st.rerun()
+
+
+def render_pour_guess_game(name):
+    gs    = st.session_state.game_state
+    beers = gs["beers"]
+    idx   = gs["idx"]
+    st.markdown('<div class="big-greeting">🍺 Pour Perfect</div>', unsafe_allow_html=True)
+
+    if gs.get("done"):
+        score = gs["score"]
+        total = len(beers)
+        pct   = int(score / (total * 10) * 100)
+        emoji = "🎯" if pct >= 80 else "🍺"
+        st.markdown(f"""
+        <div class="celebrate-box">
+            <div style="font-size:3rem;">{emoji}</div>
+            <div class="celebrate-name">{name}</div>
+            <div style="color:#d9e3f6;font-size:1rem;margin:8px 0;">scored {score}/{total*10} pts</div>
+            <div class="score-badge">{'Sharp Palate! 🎯' if pct>=70 else 'Keep Pouring! 🍺'}</div>
+        </div>""", unsafe_allow_html=True)
+        st.markdown(_celebrate_sound(pct), unsafe_allow_html=True)
+        if st.button("🔄 PLAY AGAIN", key="pour_again", use_container_width=True):
+            import random
+            beers_reset = list(beers)
+            random.shuffle(beers_reset)
+            st.session_state.game_state = {"active_game": "pour_guess", "beers": beers_reset,
+                                            "idx": 0, "score": 0, "done": False,
+                                            "guessed": False, "guess_val": 5.0}
+            st.rerun()
+        if st.button("🎮 OTHER GAMES", key="pour_hub", use_container_width=True):
+            st.session_state.game_state = {}
+            st.rerun()
+        return
+
+    beer_name, real_abv = beers[idx]
+    st.markdown(
+        f'<div style="background:#121c2a;border-radius:14px;padding:16px;margin:10px 0;'
+        f'border:1px solid rgba(255,209,101,0.15);">'
+        f'<p style="color:#9b8f79;font-size:0.7rem;font-family:Space Grotesk,sans-serif;'
+        f'text-transform:uppercase;letter-spacing:0.1em;">Beer {idx+1} of {len(beers)}</p>'
+        f'<p style="color:#ffd165;font-size:1.2rem;font-weight:800;margin-top:6px;">{beer_name}</p>'
+        f'<p style="color:#d9e3f6;font-size:0.85rem;margin-top:4px;">What\'s the ABV?</p>'
+        f'</div>', unsafe_allow_html=True)
+
+    st.markdown(f'<div class="score-badge">Score: {gs["score"]}</div>', unsafe_allow_html=True)
+
+    if gs.get("guessed"):
+        guess = gs["guess_val"]
+        diff  = abs(guess - real_abv)
+        pts   = max(0, 10 - int(diff * 4))
+        color = "#4ae176" if diff <= 0.5 else "#ffd165" if diff <= 1.5 else "#ffb4ab"
+        st.markdown(
+            f'<div style="background:#16202e;border-radius:12px;padding:16px;margin:10px 0;text-align:center;">'
+            f'<p style="color:{color};font-size:1rem;font-weight:700;">Your guess: {guess:.1f}% | Real: {real_abv}%</p>'
+            f'<p style="color:#ffd165;font-size:0.9rem;">+{pts} points!</p>'
+            f'</div>', unsafe_allow_html=True)
+        if pts >= 8:
+            st.markdown(_ding_sound(), unsafe_allow_html=True)
+        elif pts >= 4:
+            st.markdown(_tick_sound(), unsafe_allow_html=True)
+        else:
+            st.markdown(_buzz_sound(), unsafe_allow_html=True)
+
+        next_label = "FINISH" if idx + 1 >= len(beers) else "NEXT BEER →"
+        if st.button(next_label, key=f"pour_next_{idx}", use_container_width=True):
+            if idx + 1 >= len(beers):
+                gs["done"] = True
+            else:
+                gs["idx"]     = idx + 1
+                gs["guessed"] = False
+                gs["guess_val"] = 5.0
+            st.rerun()
+    else:
+        guess = st.slider("Your ABV guess (%)", min_value=0.0, max_value=15.0,
+                          value=gs.get("guess_val", 5.0), step=0.1,
+                          key=f"pour_slider_{idx}")
+        gs["guess_val"] = guess
+        if st.button(f"LOCK IN {guess:.1f}%", key=f"pour_lock_{idx}", use_container_width=True):
+            diff = abs(guess - real_abv)
+            pts  = max(0, 10 - int(diff * 4))
+            gs["score"]   += pts
+            gs["guessed"]  = True
+            st.rerun()
+
+
+def render_hop_hop_game(name):
+    gs     = st.session_state.game_state
+    rounds = gs["rounds"]
+    idx    = gs["idx"]
+    st.markdown('<div class="big-greeting">🌾 Hop or Not</div>', unsafe_allow_html=True)
+
+    if gs.get("done"):
+        score = gs["score"]
+        total = len(rounds)
+        pct   = int(score / total * 100)
+        emoji = "🌾" if pct >= 80 else "🍺"
+        st.markdown(f"""
+        <div class="celebrate-box">
+            <div style="font-size:3rem;">{emoji}</div>
+            <div class="celebrate-name">{name}</div>
+            <div style="color:#d9e3f6;font-size:1rem;margin:8px 0;">{score}/{total} correct!</div>
+            <div class="score-badge">{'Beer Genius! 🌾' if pct==100 else 'Hoppy Results! 🍺' if pct>=60 else 'Keep Hopping! 😄'}</div>
+        </div>""", unsafe_allow_html=True)
+        st.markdown(_celebrate_sound(pct), unsafe_allow_html=True)
+        if st.button("🔄 PLAY AGAIN", key="hop_again", use_container_width=True):
+            import random
+            r2 = list(rounds)
+            random.shuffle(r2)
+            st.session_state.game_state = {"active_game": "hop_hop", "rounds": r2,
+                                            "idx": 0, "score": 0, "done": False, "answered": False}
+            st.rerun()
+        if st.button("🎮 OTHER GAMES", key="hop_hub", use_container_width=True):
+            st.session_state.game_state = {}
+            st.rerun()
+        return
+
+    beer_name, is_real = rounds[idx]
+    st.markdown(
+        f'<div style="background:#121c2a;border-radius:14px;padding:20px;margin:10px 0;'
+        f'border:1px solid rgba(255,209,101,0.15);text-align:center;">'
+        f'<p style="color:#9b8f79;font-size:0.7rem;font-family:Space Grotesk,sans-serif;'
+        f'text-transform:uppercase;letter-spacing:0.1em;">Round {idx+1} of {len(rounds)}</p>'
+        f'<p style="color:#ffd165;font-size:1.4rem;font-weight:900;margin:12px 0;">{beer_name}</p>'
+        f'<p style="color:#9b8f79;font-size:0.85rem;">Is this a REAL beer or MADE UP?</p>'
+        f'</div>', unsafe_allow_html=True)
+
+    st.markdown(f'<div class="score-badge">Score: {gs["score"]}</div>', unsafe_allow_html=True)
+
+    if gs.get("answered"):
+        chosen = gs.get("chosen_real")
+        correct = is_real
+        result_color = "#4ae176" if chosen == correct else "#ffb4ab"
+        result_text  = "✅ Correct!" if chosen == correct else "❌ Wrong!"
+        fact = "This IS a real beer! 🍺" if is_real else "Totally made up! 😄"
+        st.markdown(
+            f'<div style="background:#16202e;border-radius:12px;padding:16px;margin:10px 0;text-align:center;">'
+            f'<p style="color:{result_color};font-size:1.1rem;font-weight:700;">{result_text}</p>'
+            f'<p style="color:#d9e3f6;font-size:0.85rem;margin-top:6px;">{fact}</p>'
+            f'</div>', unsafe_allow_html=True)
+        if chosen == correct:
+            st.markdown(_ding_sound(), unsafe_allow_html=True)
+        else:
+            st.markdown(_buzz_sound(), unsafe_allow_html=True)
+
+        next_label = "FINISH" if idx + 1 >= len(rounds) else "NEXT →"
+        if st.button(next_label, key=f"hop_next_{idx}", use_container_width=True):
+            if idx + 1 >= len(rounds):
+                gs["done"] = True
+            else:
+                gs["idx"]      = idx + 1
+                gs["answered"] = False
+            st.rerun()
+    else:
+        c1, c2 = st.columns(2)
+        with c1:
+            if st.button("✅ REAL BEER", key=f"hop_real_{idx}", use_container_width=True):
+                gs["answered"]    = True
+                gs["chosen_real"] = True
+                if is_real: gs["score"] += 1
+                st.rerun()
+        with c2:
+            if st.button("❌ MADE UP", key=f"hop_fake_{idx}", use_container_width=True):
+                gs["answered"]    = True
+                gs["chosen_real"] = False
+                if not is_real: gs["score"] += 1
+                st.rerun()
+
+
+# ── sound helpers (Web Audio API via HTML) ────────────────────────────────────
+def _ding_sound():
+    """Play a pleasant ding for a correct answer."""
+    return """
+    <script>
+    (function(){
+        var ctx = new (window.AudioContext || window.webkitAudioContext)();
+        var o = ctx.createOscillator();
+        var g = ctx.createGain();
+        o.connect(g); g.connect(ctx.destination);
+        o.frequency.setValueAtTime(880, ctx.currentTime);
+        o.frequency.exponentialRampToValueAtTime(1320, ctx.currentTime + 0.15);
+        g.gain.setValueAtTime(0.3, ctx.currentTime);
+        g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
+        o.start(ctx.currentTime); o.stop(ctx.currentTime + 0.5);
+    })();
+    </script>"""
+
+def _buzz_sound():
+    """Play a buzz for wrong answer."""
+    return """
+    <script>
+    (function(){
+        var ctx = new (window.AudioContext || window.webkitAudioContext)();
+        var o = ctx.createOscillator();
+        var g = ctx.createGain();
+        o.type = 'sawtooth';
+        o.connect(g); g.connect(ctx.destination);
+        o.frequency.setValueAtTime(150, ctx.currentTime);
+        g.gain.setValueAtTime(0.3, ctx.currentTime);
+        g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
+        o.start(ctx.currentTime); o.stop(ctx.currentTime + 0.4);
+    })();
+    </script>"""
+
+def _tick_sound():
+    """Play a tick for a so-so answer."""
+    return """
+    <script>
+    (function(){
+        var ctx = new (window.AudioContext || window.webkitAudioContext)();
+        var o = ctx.createOscillator();
+        var g = ctx.createGain();
+        o.frequency.setValueAtTime(660, ctx.currentTime);
+        g.gain.setValueAtTime(0.2, ctx.currentTime);
+        g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.2);
+        o.start(ctx.currentTime); o.stop(ctx.currentTime + 0.2);
+    })();
+    </script>"""
+
+def _celebrate_sound(pct):
+    """Play a fanfare for game completion."""
+    if pct >= 70:
+        return """
+        <script>
+        (function(){
+            var ctx = new (window.AudioContext || window.webkitAudioContext)();
+            var notes = [523, 659, 784, 1047];
+            notes.forEach(function(freq, i){
+                var o = ctx.createOscillator();
+                var g = ctx.createGain();
+                o.connect(g); g.connect(ctx.destination);
+                o.frequency.value = freq;
+                g.gain.setValueAtTime(0.25, ctx.currentTime + i*0.18);
+                g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + i*0.18 + 0.35);
+                o.start(ctx.currentTime + i*0.18);
+                o.stop(ctx.currentTime + i*0.18 + 0.35);
+            });
+        })();
+        </script>"""
+    else:
+        return _tick_sound()
 
 # ── session state ─────────────────────────────────────────────────────────────
 def init_state():
     defaults = {
         "step": 0,
-        "user_data": {"name":"","zipcode":"","mood":"","brand_query":None,
+        "user_data": {"name":"","mood":"","brand_query":None,
                       "day":"","taste":"","search_type":None},
         "rec_beers":          [],
         "saved_beers":        [],
         "show_debug":         False,
         "feedback_submitted": False,
-        "zip_location_label": "",   # e.g. "Santa Monica, CA"
+        "game_state":         {},
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -951,50 +1694,20 @@ def main():
     ud   = st.session_state.user_data
 
     # ── nav row ───────────────────────────────────────────────────────────────
-    if step > 0 and step != 5:
+    if step > 0 and step not in (5, 6):
         if step == 3:
-            cb, cz, cl = st.columns([1, 3, 1])
+            cb, cl = st.columns([1, 1])
             with cb:
                 if st.button("←", key="back_btn"):
                     st.session_state.step = 1
                     st.session_state.rec_beers = []
                     ud.update({"brand_query":None,"mood":"","search_type":None})
                     st.rerun()
-            with cz:
-                nz = st.text_input("zip", placeholder="Change zip", max_chars=5,
-                                   key="zip_change_field", label_visibility="collapsed")
-                cur_label = st.session_state.get("zip_location_label", "")
-                if cur_label:
-                    st.markdown(
-                        f'<p style="color:#ffd165;font-size:0.65rem;text-align:center;'
-                        f'font-family:Space Grotesk,sans-serif;letter-spacing:0.06em;'
-                        f'margin:2px 0 0 0;">&#128205; {cur_label}</p>',
-                        unsafe_allow_html=True)
-                if nz and len(nz.strip()) == 5:
-                    ok, clean = validate_zipcode(nz)
-                    if ok and clean != ud["zipcode"]:
-                        city_n, state_n = city_state_from_zip(clean)
-                        lbl = (f"{city_n}, {state_n}" if city_n and state_n
-                               else city_n if city_n else clean)
-                        st.session_state.zip_location_label = lbl
-                        ud["zipcode"] = clean
-                        st.session_state.rec_beers = []
-                        stype = ud.get("search_type")
-                        with st.spinner(f"Searching in {lbl}..."):
-                            if stype == "non_alcoholic":
-                                beers = ai_na_recs(clean)
-                            elif ud.get("brand_query"):
-                                beers = ai_brand_recs(clean, ud["brand_query"])
-                            else:
-                                beers = ai_mood_recs(clean, ud.get("mood",""),
-                                                     ud.get("day",""), ud.get("taste",""))
-                        st.session_state.rec_beers = beers
-                        st.rerun()
             with cl:
                 if st.session_state.saved_beers:
                     if st.button("My List", key="star_btn"):
                         st.session_state.step = 4; st.rerun()
-        else:
+        elif step != 6:
             c1, c2, c3 = st.columns([1, 2, 1])
             with c1:
                 if st.button("←", key="back_btn"):
@@ -1027,24 +1740,13 @@ def main():
 
         with st.form("login_form"):
             name_val = st.text_input("Your name? *", placeholder="Enter your name", max_chars=35)
-            zip_val  = st.text_input("Where ya at? *", placeholder="e.g. 90210", max_chars=5)
             if st.form_submit_button("ENTER"):
                 if not name_val.strip():
                     st.error("❌ Name is required")
                 else:
-                    ok, result = validate_zipcode(zip_val)
-                    if not ok:
-                        st.error(f"❌ {result}")
-                    else:
-                        ud["name"]    = name_val.strip()[:35]
-                        ud["zipcode"] = result
-                        # Pre-populate location label for the results screen
-                        city_n, state_n = city_state_from_zip(result)
-                        lbl = (f"{city_n}, {state_n}" if city_n and state_n
-                               else city_n if city_n else result)
-                        st.session_state.zip_location_label = lbl
-                        st.session_state.step = 1
-                        st.rerun()
+                    ud["name"] = name_val.strip()[:35]
+                    st.session_state.step = 1
+                    st.rerun()
 
         render_bottom_nav("home")
         render_footer()
@@ -1053,7 +1755,7 @@ def main():
     # STEP 1 — Search type
     # =========================================================================
     elif st.session_state.step == 1:
-        greet, time_str = get_greeting(ud["zipcode"])   # live, no cache
+        greet, time_str = get_greeting()
         name = ud.get("name", "Friend")
 
         gif_path = os.path.join(os.path.dirname(__file__), "static", "images", "beer.gif.gif")
@@ -1085,6 +1787,11 @@ def main():
         with c3:
             if st.button("🚫🍺 NON-ALCOHOLIC", key="na_btn", use_container_width=True):
                 ud["search_type"] = "non_alcoholic"; st.session_state.step = 2; st.rerun()
+        with c4:
+            # CHANGE 2: Beer Games button
+            if st.button("🎮 BEER GAMES", key="games_btn", use_container_width=True):
+                st.session_state.game_state = {}
+                st.session_state.step = 6; st.rerun()
 
         render_bottom_nav("search")
         render_footer()
@@ -1093,7 +1800,7 @@ def main():
     # STEP 1.5 — Input collection
     # =========================================================================
     elif st.session_state.step == 1.5:
-        greet, _ = get_greeting(ud["zipcode"])
+        greet, _ = get_greeting()
         st.markdown(f'<div class="big-greeting">{greet}, {ud.get("name","Friend")}.</div>',
                     unsafe_allow_html=True)
 
@@ -1111,13 +1818,12 @@ def main():
                     else:
                         st.error("Please describe your mood")
 
-        # ── SPECIFIC BEER — text box + mic below, no toggle buttons ──────────
+        # ── SPECIFIC BEER ─────────────────────────────────────────────────────
         elif stype == "brand":
             st.markdown('<div style="height:12px;"></div>', unsafe_allow_html=True)
             st.markdown('<p class="gold-text" style="font-size:0.9rem;margin-bottom:4px;">'
-                        'Type your beer or use the mic 🎤 below</p>', unsafe_allow_html=True)
+                        'Type your beer, use the mic 🎤 or upload an image 📸</p>', unsafe_allow_html=True)
 
-            # Text search form
             with st.form("brand_form"):
                 brand_query = st.text_input(
                     "Enter your beer of choice",
@@ -1129,11 +1835,11 @@ def main():
                     else:
                         st.error("Please enter a beer name or style")
 
-            # Voice input — always visible below text box, no toggle
             st.markdown('<div style="height:6px;"></div>', unsafe_allow_html=True)
             st.markdown('<p style="color:#9b8f79;font-size:0.75rem;margin:2px 0 6px;">'
                         '— or record your search —</p>', unsafe_allow_html=True)
 
+            # CHANGE 3: No file upload — mic / audio_input only
             audio_bytes, mime_type = render_voice_widget()
 
             if audio_bytes:
@@ -1150,9 +1856,55 @@ def main():
                         f'<div class="voice-heard-text">"{transcription}"</div></div>',
                         unsafe_allow_html=True)
                     with st.spinner(f"Searching for {transcription}…"):
-                        beers = ai_brand_recs(ud["zipcode"], transcription)
+                        beers = ai_brand_recs(transcription)
                     ud.update({"brand_query": transcription, "search_type": "brand",
                                "mood": None, "day": "Voice Search", "taste": "Voice Search"})
+                    st.session_state.rec_beers = beers
+                    st.session_state.step = 3
+                    st.rerun()
+
+            # CHANGE 4: Search by image
+            st.markdown('<div style="height:6px;"></div>', unsafe_allow_html=True)
+            st.markdown('<p style="color:#9b8f79;font-size:0.75rem;margin:2px 0 6px;">'
+                        '— or search by image 📸 —</p>', unsafe_allow_html=True)
+
+            img_file = st.file_uploader(
+                "📸 Upload a beer image",
+                type=["jpg", "jpeg", "png", "webp", "heic"],
+                key="beer_image_uploader")
+
+            if img_file is not None:
+                img_bytes = img_file.read()
+                # Show the uploaded image preview
+                if _PIL_AVAILABLE:
+                    preview = _PILImage.open(io.BytesIO(img_bytes))
+                    st.image(preview, use_container_width=True, caption="Uploaded image")
+
+                with st.spinner("📸 Analyzing image…"):
+                    query, err = identify_beer_from_image(img_bytes)
+
+                if err:
+                    st.error(f"❌ {err}")
+                elif query is None:
+                    # NOT_BEER or unclear
+                    st.markdown(
+                        '<div style="background:#16202e;border-radius:14px;padding:18px;'
+                        'margin:12px 0;border:1px solid rgba(255,180,171,0.3);text-align:center;">'
+                        '<p style="color:#ffb4ab;font-size:1rem;font-weight:700;">😕 Sorry, unable to find a match.</p>'
+                        '<p style="color:#9b8f79;font-size:0.85rem;margin-top:8px;">'
+                        'The image doesn\'t appear to show a beer, or it\'s not clear enough to identify. '
+                        'Please try searching by typing the beer name above.</p>'
+                        '</div>', unsafe_allow_html=True)
+                else:
+                    st.markdown(
+                        f'<div class="voice-heard-bubble">'
+                        f'<div class="voice-heard-label">Identified beer:</div>'
+                        f'<div class="voice-heard-text">"{query}"</div></div>',
+                        unsafe_allow_html=True)
+                    with st.spinner(f"Looking up {query}…"):
+                        beers = ai_image_rec(query)
+                    ud.update({"brand_query": query, "search_type": "image",
+                               "mood": None, "day": "Image Search", "taste": "Image Search"})
                     st.session_state.rec_beers = beers
                     st.session_state.step = 3
                     st.rerun()
@@ -1168,15 +1920,15 @@ def main():
 
         if stype == "non_alcoholic":
             ud.update({"day":"Non-Alcoholic Search","taste":"Non-Alcoholic Search"})
-            with st.spinner("Finding non-alcoholic beers…"):
-                beers = ai_na_recs(ud["zipcode"])
+            with st.spinner("Finding top-rated non-alcoholic beers…"):
+                beers = ai_na_recs()
             st.session_state.rec_beers = beers
             st.session_state.step = 3; st.rerun()
 
         elif ud.get("brand_query"):
             ud.update({"day":"Specific Search","taste":"Specific Search"})
             with st.spinner(f"Searching for {ud['brand_query']}…"):
-                beers = ai_brand_recs(ud["zipcode"], ud["brand_query"])
+                beers = ai_brand_recs(ud["brand_query"])
             st.session_state.rec_beers = beers
             st.session_state.step = 3; st.rerun()
 
@@ -1192,8 +1944,8 @@ def main():
                         st.error("Please fill in both fields")
                     else:
                         ud.update({"day":day[:35],"taste":taste[:35]})
-                        with st.spinner("Pouring recommendations…"):
-                            beers = ai_mood_recs(ud["zipcode"], ud["mood"], day[:35], taste[:35])
+                        with st.spinner("Pouring top-rated recommendations…"):
+                            beers = ai_mood_recs(ud["mood"], day[:35], taste[:35])
                         st.session_state.rec_beers = beers
                         st.session_state.step = 3; st.rerun()
             render_bottom_nav("search")
@@ -1203,7 +1955,25 @@ def main():
     # STEP 3 — Recommendations
     # =========================================================================
     elif st.session_state.step == 3:
-        st.markdown('<h3 class="gold-text">Top Picks For You</h3>', unsafe_allow_html=True)
+        stype = ud.get("search_type", "brand")
+
+        if stype != "image":
+            render_refine_search(stype)
+
+        if stype == "image":
+            st.markdown('<h3 class="gold-text">📸 Beer Match</h3>', unsafe_allow_html=True)
+            st.markdown(
+                '<p style="color:#9b8f79;font-size:0.72rem;text-align:center!important;'
+                'font-family:Space Grotesk,sans-serif;margin-bottom:12px;">'
+                'Identified from your image · Enter zipcode below to check local availability</p>',
+                unsafe_allow_html=True)
+        else:
+            st.markdown('<h3 class="gold-text">Top Picks For You</h3>', unsafe_allow_html=True)
+            st.markdown(
+                '<p style="color:#9b8f79;font-size:0.72rem;text-align:center!important;'
+                'font-family:Space Grotesk,sans-serif;margin-bottom:12px;">'
+                '⭐ Ranked by Google review ratings · Enter zipcode below each beer to check local availability</p>',
+                unsafe_allow_html=True)
 
         if not st.session_state.rec_beers:
             st.markdown(
@@ -1219,22 +1989,13 @@ def main():
             with c2:
                 if st.button("GO HOME", key="go_home_btn", use_container_width=True):
                     st.session_state.step = 0
-                    st.session_state.user_data = {"name":"","zipcode":"","mood":"",
+                    st.session_state.user_data = {"name": ud.get("name",""), "mood":"",
                                                    "brand_query":None,"day":"","taste":"","search_type":None}
                     st.session_state.rec_beers = []; st.rerun()
         else:
             for idx, beer in enumerate(st.session_state.rec_beers):
-                ukey  = f"rec_{idx}_{beer.get('name','?').replace(' ','_')}"
-                render_beer_with_bars(beer, ud["zipcode"], ukey)
-                saved = any(b["name"] == beer["name"] for b in st.session_state.saved_beers)
-                if not saved:
-                    if st.button("SAVE", key=f"save_{ukey}", use_container_width=True):
-                        st.session_state.saved_beers.append(beer)
-                        log_beer_selection(ud["name"], beer.get("name","?"), beer.get("brand","?"),
-                                           ud.get("search_type","unknown"), ud.get("mood"))
-                        st.rerun()
-                else:
-                    st.button("SAVED ✓", disabled=True, key=f"saved_{ukey}", use_container_width=True)
+                render_beer_with_zip_search(beer, idx, stype)
+                st.markdown('<hr style="border:none;border-top:1px solid rgba(255,209,101,0.07);margin:20px 0;">', unsafe_allow_html=True)
 
         render_bottom_nav("search")
         render_footer()
@@ -1252,10 +2013,10 @@ def main():
                 '</div>', unsafe_allow_html=True)
         else:
             for i, beer in enumerate(st.session_state.saved_beers):
-                ukey = f"saved_{i}_{beer.get('name','?').replace(' ','_')}"
-                render_beer_with_bars(beer, ud["zipcode"], ukey)
-                if st.button("REMOVE", key=f"remove_{ukey}", use_container_width=True):
+                render_beer_with_zip_search(beer, f"sv_{i}", ud.get("search_type","brand"))
+                if st.button("REMOVE", key=f"remove_sv_{i}", use_container_width=True):
                     st.session_state.saved_beers.pop(i); st.rerun()
+                st.markdown('<hr style="border:none;border-top:1px solid rgba(255,209,101,0.07);margin:16px 0;">', unsafe_allow_html=True)
         render_bottom_nav("saved")
         render_footer()
 
@@ -1289,6 +2050,13 @@ def main():
                     else:
                         st.error("Please write some feedback before submitting.")
         render_bottom_nav("feedback")
+
+    # =========================================================================
+    # STEP 6 — Beer Games
+    # =========================================================================
+    elif st.session_state.step == 6:
+        render_beer_games()
+        render_footer()
 
 
 if __name__ == "__main__":
