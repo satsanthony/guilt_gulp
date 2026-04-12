@@ -2,11 +2,7 @@ import sys
 import traceback
 import logging
 
-# WARNING level suppresses watchdog inotify DEBUG noise in Railway logs
-logging.basicConfig(level=logging.WARNING)
-# Silence watchdog specifically in case other libs set it lower
-logging.getLogger("watchdog").setLevel(logging.ERROR)
-logging.getLogger("watchdog.observers.inotify_buffer").setLevel(logging.ERROR)
+logging.basicConfig(level=logging.DEBUG)
 
 try:
     import streamlit as st
@@ -57,10 +53,8 @@ st.set_page_config(
 STATIC_IMG_DIR = os.path.join(os.path.dirname(__file__), "static", "images")
 LOG_DIR        = os.path.join(os.path.dirname(__file__), "log")
 FEEDBACK_DIR   = os.path.join(os.path.dirname(__file__), "feedback")
-
-# Only create static dir unconditionally — log/feedback dirs are only
-# created on-demand (local fallback) to avoid watchdog inotify noise on Railway
-os.makedirs(STATIC_IMG_DIR, exist_ok=True)
+for d in (STATIC_IMG_DIR, LOG_DIR, FEEDBACK_DIR):
+    os.makedirs(d, exist_ok=True)
 
 try:
     import google.generativeai as genai
@@ -230,23 +224,11 @@ def save_feedback(username, feedback_text):
     return True
 
 
-def sanitize_beer_for_json(beer):
-    """
-    Return a copy of the beer dict with non-JSON-serializable fields removed.
-    image_bytes is raw bytes and cannot be stored in PostgreSQL JSONB.
-    The image URL (if any) is also transient so we drop it too — images
-    are re-fetched from CSE when the shared page renders.
-    """
-    skip = {"image_bytes", "image"}
-    return {k: v for k, v in beer.items() if k not in skip}
-
-
 # ── Beer list persistence ─────────────────────────────────────────────────────
 def save_beer_list(beers, username, title=None):
     """
     Save a list of beers to PostgreSQL and return the share token.
     Returns (token, error_message).
-    Strips image_bytes and other non-serializable fields before storing.
     """
     conn = get_db_connection()
     if not conn:
@@ -255,13 +237,11 @@ def save_beer_list(beers, username, title=None):
     if not title:
         title = f"{username}'s Beer List — {datetime.datetime.now().strftime('%b %d %Y')}"
     try:
-        # Strip bytes/non-serializable fields from every beer before storing
-        clean_beers = [sanitize_beer_for_json(b) for b in beers]
         cur = conn.cursor()
         cur.execute(
             """INSERT INTO beer_lists (share_token, title, username, beers)
                VALUES (%s, %s, %s, %s)""",
-            (token, title, username, json.dumps(clean_beers))
+            (token, title, username, json.dumps(beers))
         )
         conn.commit()
         cur.close()
