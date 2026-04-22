@@ -20,7 +20,6 @@ try:
     import io
     import sys
     import secrets
-    from huggingface_hub import HfApi, hf_hub_download
 except Exception as e:
     print("STARTUP ERROR:", e)
     traceback.print_exc()
@@ -80,9 +79,8 @@ GOOGLE_CSE_API_KEY       = os.getenv("GOOGLE_CSE_API_KEY")
 GOOGLE_CSE_CX            = os.getenv("GOOGLE_CSE_CX")
 GOOGLE_PLACES_API_KEY    = os.getenv("GOOGLE_PLACES_API_KEY")
 GOOGLE_GEOCODING_API_KEY = os.getenv("GOOGLE_GEOCODING_API_KEY") or GOOGLE_PLACES_API_KEY
-HF_TOKEN                 = os.getenv("HF_TOKEN")
-HF_DATASET_REPO          = "mashomashi/beer_data"
 DATABASE_URL             = os.getenv("DATABASE_URL")
+BREWERY_SERVICE_URL      = os.getenv("BREWERY_SERVICE_URL", "")
 
 # ── debug ────────────────────────────────────────────────────────────────────
 def debug_print(msg, level="INFO"):
@@ -144,36 +142,6 @@ def init_db():
 init_db()
 
 # ── logging / feedback ────────────────────────────────────────────────────────
-def log_beer_selection(username, beer_name, brand, search_type, mood=None):
-    if not HF_TOKEN:
-        return
-    try:
-        import tempfile
-        api = HfApi()
-        ts  = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        try:
-            lp = hf_hub_download(repo_id=HF_DATASET_REPO, filename="log.txt",
-                                  repo_type="dataset", token=HF_TOKEN)
-            with open(lp, encoding="utf-8") as f:
-                existing = f.read()
-        except Exception:
-            existing = ""
-        labels = {"mood": f"By Mood ({mood})", "non_alcoholic": "Non-Alcoholic",
-                  "voice": "By Voice"}
-        label = labels.get(search_type, "Specific Beer")
-        if search_type == "mood" and not mood:
-            label = "By Mood"
-        entry = f"[{ts}] User: {username} | Beer: {beer_name} ({brand}) | Search: {label}\n"
-        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", delete=False, suffix=".txt") as f:
-            f.write(entry + existing); tmp = f.name
-        try:
-            api.upload_file(path_or_fileobj=tmp, path_in_repo="log.txt",
-                            repo_id=HF_DATASET_REPO, repo_type="dataset", token=HF_TOKEN)
-        finally:
-            if os.path.exists(tmp):
-                os.remove(tmp)
-    except Exception as e:
-        debug_print(f"Log error: {e}", "ERROR")
 
 
 def save_feedback(username, feedback_text):
@@ -197,31 +165,12 @@ def save_feedback(username, feedback_text):
             debug_print(f"DB feedback error, falling back: {e}", "WARNING")
         finally:
             conn.close()
-
-    # ── Fallback: HuggingFace ─────────────────────────────────────────────────
-    ts      = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    content = (f"Feedback from: {username}\n"
-               f"Date: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
-               + "=" * 50 + "\n\n" + feedback_text)
-    if HF_TOKEN:
-        try:
-            import tempfile
-            api = HfApi()
-            with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", delete=False, suffix=".txt") as f:
-                f.write(content); tmp = f.name
-            try:
-                api.upload_file(path_or_fileobj=tmp,
-                                path_in_repo=f"feedback/{username}_{ts}.txt",
-                                repo_id=HF_DATASET_REPO, repo_type="dataset", token=HF_TOKEN)
-                return True
-            finally:
-                if os.path.exists(tmp):
-                    os.remove(tmp)
-        except Exception as e:
-            debug_print(f"HF feedback failed, local fallback: {e}", "WARNING")
-
     # ── Last resort: local file ───────────────────────────────────────────────
     try:
+        ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        content = (f"Feedback from: {username}\n"
+                   f"Date: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+                   + "=" * 50 + "\n\n" + feedback_text)
         os.makedirs(FEEDBACK_DIR, exist_ok=True)
         with open(os.path.join(FEEDBACK_DIR, f"{username}_{ts}.txt"), "w", encoding="utf-8") as f:
             f.write(content)
@@ -1258,6 +1207,9 @@ def render_bar(bar):
         f'</div>', unsafe_allow_html=True)
     st.markdown(f"[📍 Open in Google Maps]({maps})")
 
+def log_beer_selection(username, beer_name, brand, search_type, mood=None):
+    pass  # HuggingFace logging removed — PostgreSQL handles persistence
+
 def render_beer_with_zip_search(beer, beer_idx, search_type):
     ukey = f"beer_{beer_idx}_{beer.get('name','?').replace(' ','_')}"
 
@@ -2125,6 +2077,20 @@ def main():
             if st.button("🎮 BEER GAMES", key="games_btn", use_container_width=True):
                 st.session_state.game_state = {}
                 st.session_state.step = 6; st.rerun()
+        if BREWERY_SERVICE_URL:
+            st.markdown(f"""
+            <a href="{BREWERY_SERVICE_URL}" target="_blank" style="text-decoration:none;">
+                <div style="width:100%;border-radius:14px;padding:14px 20px;
+                    background:transparent;color:#ffd165;
+                    border:1.5px solid rgba(255,209,101,0.32);
+                    font-family:Epilogue,sans-serif;font-weight:900;
+                    font-size:0.82rem;text-transform:uppercase;
+                    letter-spacing:0.07em;margin-top:10px;
+                    text-align:center;cursor:pointer;box-sizing:border-box;">
+                    🏭 FIND A BREWERY
+                </div>
+            </a>
+            """, unsafe_allow_html=True)
 
         render_bottom_nav("search")
         render_footer()
