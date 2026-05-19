@@ -274,7 +274,7 @@ def initialize_gemini_model():
         return None, "GEMINI_API_KEY not set"
     try:
         genai.configure(api_key=GEMINI_API_KEY)
-        for model_name in ['gemini-3.1-flash-lite-preview', 'gemini-3-flash-preview']:
+        for model_name in ['gemini-3.1-flash-lite', 'gemini-3-flash']:
             try:
                 debug_print(f"Trying {model_name}…", "INFO")
                 m = genai.GenerativeModel(model_name)
