@@ -1,2 +1,32 @@
 beerapp_Flowdiagram.png
-beerapp_Flowdiagram.png
+
+# Environment variables with sensitive data
+.env
+.env.local
+.env.*.local
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Streamlit cache
+.streamlit/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Application generated
+data/
+cache/
